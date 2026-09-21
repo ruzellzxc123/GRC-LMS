@@ -1,0 +1,426 @@
+================================================================================
+GRC-LMS SYSTEM ARCHITECTURE
+Compiled directly from the current codebase (routes/web.php, app/Http/Controllers,
+app/Services). Nothing below is planned or partial -- everything listed is live.
+Stack: Laravel 13 + Inertia.js v3 + React 19 + MySQL. No queue workers, no cron
+jobs -- every process below runs on a request or a short client-side poll.
+================================================================================
+
+
+OVERVIEW
+--------------------------------------------------------------------------------
+GRC-LMS is a single Laravel application serving three role-scoped portals
+through Inertia -- there is no separate API layer for the app itself (one
+legacy JSON endpoint remains, noted below). A single `role` column on `users`
+(admin / professor / student) drives both route access (an EnsureUserHasRole
+middleware gates each portal's route group) and the post-login redirect.
+
+Five service classes carry domain logic that doesn't belong in a controller:
+  - TermGradingService          term-based cumulative grading
+  - PerformancePredictionService at-risk flags + composite scoring
+  - CourseContentService        default content categories
+  - QuizImportParser            .txt quiz file parsing
+  - StudentNotificationService  pending deadlines / new-content detection
+
+
+================================================================================
+1. ALL SYSTEM FEATURES (by dashboard)
+================================================================================
+
+--------------------------------------------------------------------------------
+ADMIN DASHBOARD
+--------------------------------------------------------------------------------
+Full institutional control: accounts, subjects, enrollment, the academic
+calendar, and two prediction views the other portals don't get.
+
+- Student records
+    Create/edit student accounts with program / year-level / section
+    validation (section prefix must match year level). Searchable, paginated
+    list by name, email, student ID, section, or program.
+      GET  /admin/students
+      POST /admin/students
+      PUT  /admin/students/{id}
+
+- Professor records
+    Create/edit professor accounts, assign department, toggle active/inactive
+    without deleting history.
+      GET   /admin/professors
+      POST  /admin/professors
+      PATCH /admin/professors/{id}/status
+
+- Subjects (courseware)
+    Create/edit subjects: department, academic term, year level, section, and
+    assigned professor -- the professor picker is restricted to that
+    department, validated server-side.
+      GET  /admin/courses
+      POST /admin/courses
+      PUT  /admin/courses/{id}
+
+- Enrollment management
+    Per-subject roster: enroll a student found by name/email/ID search, or
+    unenroll directly. The only fully admin-controlled enrollment path
+    (students can also self-enroll -- see Student dashboard).
+      GET    /admin/courses/{id}/enrollments
+      POST   /admin/courses/{id}/enrollments
+      DELETE /admin/courses/{id}/enrollments/{id}
+
+- Departments & academic terms
+    CRUD for departments (name/code). CRUD for academic terms, including the
+    Prelims / Midterm / Finals exam-period date ranges that drive the shared
+    calendar and the "current term" used by grading.
+      GET   /admin/departments
+      GET   /admin/terms
+      PATCH /admin/terms/{id}/period
+
+- Student performance prediction
+    Every student, ranked worst-first by a composite risk score with
+    rule-based flags (low attendance, low quiz average, incomplete profile).
+    Drill into one student for a per-subject breakdown.
+      GET /admin/performance/students
+      GET /admin/performance/students/{id}
+
+- Professor performance index
+    The same composite scoring averaged across each professor's own sections,
+    plus how many of their enrollments count as at-risk.
+      GET /admin/performance/professors
+
+- Activity feed
+    The 15 most recent events merged from three live tables -- new
+    enrollments, feedback sent, completed quiz attempts -- sorted by
+    timestamp. Not a persisted audit log; recomputed on every visit.
+      GET /admin/activities
+
+- Reports
+    One summary card per subject: enrollment count, average attendance rate,
+    average quiz score -- computed live.
+      GET /admin/reports
+
+- Institution calendar
+    Every academic term's Prelims/Midterm/Finals windows in one shared
+    calendar view.
+      GET /admin/calendar
+
+  [Legacy, unused] GET /api/courseware -- plain JSON endpoint from an earlier
+  client-fetch dashboard prototype. No current page calls it.
+
+
+--------------------------------------------------------------------------------
+PROFESSOR DASHBOARD
+--------------------------------------------------------------------------------
+Everything for running a section: content, quizzes, grading, attendance, and
+direct feedback to students.
+
+- My subjects
+    Create/edit their own subjects; filter by year level or department.
+      GET  /professor/courses
+      POST /professor/courses
+
+- Roster
+    Every enrolled student with a live attendance rate, quiz average, and
+    composite performance score (same prediction service admins use).
+      GET /professor/courses/{id}/roster
+
+- Attendance
+    Mark Present / Absent / Late / Excused per student for a chosen date;
+    switching the date doubles as viewing/editing an earlier day's record.
+      GET  /professor/courses/{id}/attendance
+      POST /professor/courses/{id}/attendance
+
+- Course content authoring
+    Upload into Module / Quizzes / Exam / Activity categories (or a custom
+    one), each with a draft/publish switch, an optional file or link, and a
+    per-item Timestamp-or-Timer screen-time setting. Categories can require a
+    student file submission -- "Activity" does by default. A comment thread
+    runs on every item.
+      POST  /professor/courses/{id}/content/categories/{cat}/items
+      PATCH /professor/courses/{id}/content/items/{id}/publish
+      POST  /professor/courses/{id}/content/items/{id}/comments
+
+- Submission grading
+    View/download every student's file for a submission-required item, score
+    it 0-100, auto-synced into the matching gradebook category.
+      GET /professor/courses/{id}/content/items/{id}/submissions
+      PUT /professor/courses/{id}/content/submissions/{id}
+
+- Quiz builder
+    Manual multiple-choice builder (2-4 options, exactly one correct) with a
+    Timestamp-or-Timer mode and, for Timer, a minute limit. Editing a quiz
+    that already has attempts locks its questions but still allows retiming.
+      GET  /professor/quizzes/create
+      POST /professor/quizzes
+
+- Quiz import
+    Upload a plain-text file (Q: / lettered options / * marks correct) parsed
+    into the same quiz structure, same Timing controls, with an in-app
+    formatting guide and per-line error reporting.
+      GET  /professor/quizzes/import
+      POST /professor/quizzes/import
+
+- Term-based grading
+    Prelims / Midterm / Finals each get weighted categories (auto-created,
+    evenly split, editable so long as they total 100%). The "Quizzes"
+    category populates itself from real quiz scores, with a manual override
+    per student. Midterm/Finals fold the previous period's grade forward
+    using a configurable split. Exports to CSV.
+      GET /professor/courses/{id}/grades/{term}
+      PUT /professor/courses/{id}/grades/{term}/scores
+      GET /professor/courses/{id}/grades/{term}/export
+
+- Feedback to students
+    Send a private message to one enrolled student from the roster; keeps a
+    sent-history.
+      GET  /professor/courses/{id}/students/{id}/feedback/create
+      POST /professor/courses/{id}/students/{id}/feedback
+
+- Meeting link
+    Attach/update one video-call URL per subject, shown to students as a
+    join button.
+      PUT /professor/courses/{id}/meeting
+
+
+--------------------------------------------------------------------------------
+STUDENT DASHBOARD
+--------------------------------------------------------------------------------
+Studying, taking assessments, and tracking their own standing -- scoped
+strictly to what they're enrolled in.
+
+- My subjects & self-enrollment
+    Search unenrolled subjects by code and enroll directly, no admin step
+    required; view all currently enrolled subjects.
+      GET  /student/courses
+      POST /student/enrollments
+
+- Course content & screen-time
+    Browse Module/Quiz/Exam/Activity categories, download files, open links,
+    discuss on the comment thread. Each item is either Timestamp (passive
+    elapsed-time record) or Timer (countdown) -- neither starts until the
+    student clicks Start, and finishes only when they click Mark as Finished.
+      POST /student/content/items/{id}/start
+      POST /student/content/items/{id}/finish
+
+- File submission
+    Upload a file for any submission-required item; re-uploading replaces the
+    previous file and clears any existing score.
+      POST /student/content/items/{id}/submit
+
+- Quizzes & exams
+    Take a quiz under whichever timing mode the professor set. Timer mode
+    shows a live countdown and auto-submits whatever's answered at zero --
+    even if the student never returns, the server finalizes it on next load.
+    The screen is tiled with a name+email watermark, copy/right-click
+    disabled, as a screenshot deterrent.
+      GET  /student/quizzes/{id}
+      POST /student/quizzes/{id}
+
+- Scores
+    Per-subject quiz history and running average.
+      GET /student/scores
+
+- Attendance
+    Per-subject Present/Absent/Late/Excused history and rate, read-only.
+      GET /student/attendance
+
+- Feedback inbox
+    Messages from professors; unread ones are marked read the moment the
+    inbox is opened.
+      GET /student/feedback
+
+- Calendar & live badges
+    Shared academic calendar plus quizzes with an approaching deadline
+    flagged on their date. A red dot on Calendar = a pending deadline; a red
+    dot on My Subjects = a professor published something new since last
+    view -- both refresh roughly every 20 seconds automatically.
+      GET /student/calendar
+
+
+================================================================================
+2. ALL SYSTEM PROCESSES
+================================================================================
+Nothing here runs on a schedule -- no queue workers or cron jobs exist in this
+app. Every process fires either on a request or a short client-side poll.
+
+AUTHENTICATION & ACCESS
+  - Account authentication (Laravel Fortify)
+      Login, registration, password reset, email verification, 2FA, and
+      passkeys are all handled by Fortify -- no custom auth code beyond
+      wiring its views.
+  - Role-based route gating (middleware)
+      Every portal route sits behind auth, verified, and role:<role>.
+      EnsureUserHasRole checks the user's single `role` column against the
+      roles allowed on that route and aborts 403 otherwise.
+  - Post-login redirect (routing)
+      Every account lands on /dashboard; a route closure reads the role and
+      redirects to admin.dashboard / professor.dashboard / student.dashboard.
+
+CONTENT PUBLISHING WORKFLOW
+  - Draft / publish state machine
+      Both quizzes and course-content items carry `is_published`, off by
+      default. Students only ever see published items -- filtered at the
+      query level, not just hidden in the UI.
+
+SCREEN-TIME TIMING ENGINE
+  - Timestamp vs. Timer mode (config)
+      Both Quiz and CourseContentItem carry `timing_mode` (timestamp/timer)
+      and an optional `time_limit_minutes`, set by the professor at upload.
+  - Access-triggered start (by design)
+      The clock never starts passively. A quiz attempt's started_at is
+      stamped the moment a student opens that quiz; a module's
+      ContentItemView.started_at is stamped only when the student clicks
+      Start -- loading the subject page alone creates nothing.
+  - Idempotent expiry check (server-side)
+      Every time a Timer-mode quiz is opened, the server independently checks
+      whether now() >= started_at + time_limit_minutes and force-finalizes
+      the attempt if so -- reopening an expired quiz can't continue it.
+  - Countdown & auto-submit (client-side)
+      A 1-second interval ticks down to the server-computed expires_at and
+      posts whatever's answered -- including nothing -- the instant it hits
+      zero. Answer validation is deliberately lenient: unanswered = skipped,
+      not rejected.
+
+ASSESSMENT & GRADING
+  - Quiz auto-grading
+      Each answered question is checked against its option's is_correct
+      flag; score = correct / total * 100. Unanswered questions create no
+      response row, so a timeout auto-submit just scores lower.
+  - Quiz import parsing (QuizImportParser)
+      Regex-based line parser turns a .txt file into questions/options,
+      requiring >=2 options and exactly one marked correct per question.
+  - Term-based cumulative grading (TermGradingService)
+      Prelims/Midterm/Finals categories auto-provisioned on first visit,
+      weights split evenly to total 100%. Midterm/Finals compute a
+      cumulative grade -- a weighted blend of the previous period's
+      cumulative grade and the current period's own grade.
+  - Submission-to-gradebook sync
+      Grading a file submission mirrors that score into the matching grading
+      category for the item's current term, silently. Clearing a score
+      removes the mirrored entry too.
+  - Manual quiz-score override
+      A professor can override a quiz's auto-computed score directly in the
+      gradebook without touching the underlying attempt.
+
+ATTENDANCE TRACKING
+  - Daily marking (idempotent)
+      One attendance row per enrollment per date, upserted -- marking the
+      same date twice edits the existing record.
+
+AT-RISK / PERFORMANCE PREDICTION
+  - Rule-based flags (PerformancePredictionService)
+      Three flags: attendance <75%, quiz average <60%, incomplete profile
+      (missing program/year level/section). 2+ flags = high risk, 1 = medium,
+      0 = low.
+  - Weighted composite score
+      Attendance 40% + quiz average 50% + profile completeness 10%,
+      renormalized over whichever signals actually have data.
+
+NOTIFICATIONS
+  - Shared prop computation (StudentNotificationService)
+      pending_deadlines_count and has_new_content are computed as lazy
+      Inertia props on every request for a logged-in user.
+  - Client polling (usePoll, 20s)
+      The sidebar re-requests just those two props roughly every 20 seconds
+      via Inertia's partial reload -- the "real-time" badges are this poll,
+      not a websocket connection.
+
+EXAM INTEGRITY
+  - Screenshot-deterrent watermark
+      The quiz-taking screen is tiled with a diagonal SVG watermark bearing
+      the student's name and email; copy/cut/right-click handlers are
+      disabled -- a deterrent and attribution trail, not a hard block.
+
+COMMUNICATION
+  - Feedback messages
+      One-way, professor -> student, scoped to a specific enrollment; tracked
+      read/unread, auto-marked read when the student opens their inbox.
+  - Comment threads
+      Threaded on any content item, visible/postable by the owning professor
+      and any enrolled student.
+
+CALENDAR & ENROLLMENT
+  - Exam-period configuration
+      An admin sets Prelims/Midterm/Finals start-end dates once per academic
+      term; every portal's calendar reads the same records.
+  - Dual-path enrollment
+      Admins enroll/unenroll any student into any subject directly; students
+      can also self-enroll by subject code search. Both use firstOrCreate on
+      the same enrollments table, so neither creates a duplicate.
+
+ACTIVITY FEED (not a full audit log)
+  - Merged event view
+      The admin "Activities" page is not a persisted, generic audit trail --
+      there's no table logging every write in the system. It merges the 15
+      most recent rows across three real event sources (enrollments,
+      feedback, quiz attempts) by timestamp, on every visit.
+
+
+================================================================================
+3. END-TO-END SYSTEM FLOW
+================================================================================
+
+ENTRY & ROUTING
+  1. Landing & authentication
+     A visitor hits / (public welcome page) and logs in through Fortify's
+     flow, including 2FA or a passkey if enrolled. A session cookie issues.
+  2. Role dispatch
+     Any authenticated visit to /dashboard reads user.role and redirects to
+     that portal's own dashboard route.
+  3. Shared props, on every request
+     HandleInertiaRequests attaches the current user, sidebar state, and the
+     two notification props to every Inertia response -- the notification
+     values are lazy closures, only queried when a page or poll asks.
+
+WALKTHROUGH -- a student takes a Timer-mode quiz
+  1. Open the quiz
+     Student clicks a quiz -> GET /student/quizzes/{id}. Controller checks
+     enrollment + published, then finds/creates that student's QuizAttempt,
+     stamping started_at = now() the first time.
+  2. Server-side expiry check
+     If Timer mode and now() is already past started_at + time_limit_minutes,
+     the attempt is force-finalized right here -- straight to results.
+  3. Render the take screen
+     Otherwise the quiz renders with a `timing` prop carrying the mode and
+     exact expires_at instant. Client starts a 1-second countdown and shows
+     the watermark overlay.
+  4. Submit -- manually or by timeout
+     Either the student submits, or the countdown hits zero and the page
+     submits automatically with whatever's answered -> POST
+     /student/quizzes/{id}.
+  5. Grade & respond
+     Server grades every answered question, saves the attempt, redirects to
+     results: score, per-question review, duration, auto-submitted flag.
+
+WALKTHROUGH -- a professor publishes a timed module
+  1. Upload
+     Professor opens Content, "Upload New", sets Timing to Timer with a
+     minute limit, submits -> POST .../content/items. Stored unpublished.
+  2. Publish
+     Professor flips it visible -> PATCH .../items/{id}/publish. Its
+     updated_at now postdates every enrolled student's content_last_viewed_at.
+  3. Badge appears
+     Within ~20 seconds, enrolled students' sidebar poll notices
+     has_new_content flip true and a red dot appears on My Subjects.
+  4. Student opens the subject
+     The item shows with no clock running yet -- its `view` is null. A
+     "Start -- N min limit" button is the only timing UI rendered.
+  5. Start, then finish
+     Clicking Start -> POST .../items/{id}/start stamps started_at and the
+     countdown badge appears. Clicking "Mark as Finished" -> POST
+     .../items/{id}/finish stamps finished_at; duration is computed and
+     shown immediately.
+
+WALKTHROUGH -- grading a submission reaches the gradebook
+  1. Grade the file
+     Professor opens an Activity item's submissions list, downloads a file,
+     enters a score -> PUT .../submissions/{id}.
+  2. Auto-sync into the gradebook
+     Controller resolves the subject's current term and matching grade
+     category (e.g. "Activities"), creates/updates that student's GradeScore
+     automatically, in the same request.
+  3. Visible everywhere at once
+     The score factors into that term's weighted grade, the student's own
+     Scores page, and the composite performance score the roster and admin
+     prediction views read live -- nothing is cached, so there's no sync
+     delay.
+
+================================================================================
+END OF DOCUMENT
+================================================================================
