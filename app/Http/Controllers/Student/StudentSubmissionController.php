@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Student;
 
+use App\Events\CourseContentUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\ContentItemSubmission;
 use App\Models\CourseContentItem;
@@ -55,6 +56,8 @@ class StudentSubmissionController extends Controller
                 'score' => null,
             ],
         );
+
+        CourseContentUpdated::dispatchSafely($courseware->id);
 
         return back()->with('success', 'Your submission was uploaded successfully.');
     }

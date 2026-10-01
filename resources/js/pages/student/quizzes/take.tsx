@@ -1,5 +1,5 @@
-import { Head, router, usePage } from '@inertiajs/react';
-import { ClipboardList, Clock, Send } from 'lucide-react';
+import { Head, router } from '@inertiajs/react';
+import { ClipboardList, Clock, EyeOff, Send, ShieldAlert } from 'lucide-react';
 import type { ClipboardEvent, FormEvent, MouseEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import InputError from '@/components/input-error';
@@ -41,56 +41,114 @@ function formatDuration(totalSeconds: number): string {
     return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-interface AuthUser {
-    name: string;
-    email: string;
+type BlackoutReason = 'screenshot' | 'left-tab' | null;
+
+/**
+ * There is no web API that can detect or intercept an OS-level screenshot
+ * (Snipping Tool, Win+Shift+S, mobile capture, or a second device's camera)
+ * — a page can't see or stop those. What this *can* do, and does:
+ *   - Catch the literal PrintScreen key and black out immediately (a
+ *     deterrent + logged flag, not a guaranteed block — the OS has likely
+ *     already copied the frame to the clipboard before JS runs).
+ *   - Black out whenever the tab/window loses focus (alt-tabbing to look
+ *     something up, or many external screenshot tools briefly stealing
+ *     focus) and require the student to deliberately resume.
+ * Every trigger increments a counter submitted with the attempt, so the
+ * professor sees how many times it happened even though the page can't stop
+ * every method of capturing the screen.
+ */
+function useScreenshotDeterrent() {
+    const [blackout, setBlackout] = useState<BlackoutReason>(null);
+    const suspiciousCountRef = useRef(0);
+    const wasHiddenRef = useRef(false);
+
+    useEffect(() => {
+        const trigger = (reason: BlackoutReason) => {
+            suspiciousCountRef.current += 1;
+            setBlackout(reason);
+        };
+
+        const onKeyUp = (event: KeyboardEvent) => {
+            if (event.key === 'PrintScreen') {
+                trigger('screenshot');
+            }
+        };
+
+        const onVisibilityChange = () => {
+            if (document.hidden) {
+                wasHiddenRef.current = true;
+
+                return;
+            }
+
+            if (wasHiddenRef.current) {
+                wasHiddenRef.current = false;
+                trigger('left-tab');
+            }
+        };
+
+        window.addEventListener('keyup', onKeyUp);
+        document.addEventListener('visibilitychange', onVisibilityChange);
+
+        return () => {
+            window.removeEventListener('keyup', onKeyUp);
+            document.removeEventListener(
+                'visibilitychange',
+                onVisibilityChange,
+            );
+        };
+    }, []);
+
+    return {
+        blackout,
+        resume: () => setBlackout(null),
+        suspiciousCountRef,
+    };
 }
 
-interface PageProps {
-    auth: { user: AuthUser };
-    [key: string]: unknown;
-}
-
-function escapeXml(value: string): string {
-    return value
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-}
-
-function buildWatermarkBackground(text: string): string {
-    const label = escapeXml(text);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="340" height="170">
-        <text x="10" y="90" transform="rotate(-30 170 85)" font-size="13" fill="rgba(100,116,139,0.28)" font-family="sans-serif">${label}</text>
-    </svg>`;
-
-    return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-}
-
-function ScreenshotWatermark({ text }: { text: string }) {
-    const backgroundImage = useMemo(
-        () => buildWatermarkBackground(text),
-        [text],
-    );
-
+function BlackoutOverlay({
+    reason,
+    onResume,
+}: {
+    reason: 'screenshot' | 'left-tab';
+    onResume: () => void;
+}) {
     return (
-        <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 z-10 select-none"
-            style={{ backgroundImage, backgroundRepeat: 'repeat' }}
-        />
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black p-6 text-center">
+            {reason === 'screenshot' ? (
+                <ShieldAlert className="size-10 text-red-500" />
+            ) : (
+                <EyeOff className="size-10 text-red-500" />
+            )}
+            <div>
+                <p className="font-semibold text-white">
+                    {reason === 'screenshot'
+                        ? 'Screenshot key detected'
+                        : 'You left the quiz tab'}
+                </p>
+                <p className="mt-1 max-w-sm text-sm text-slate-300">
+                    This has been logged for your professor. Click below to
+                    continue your attempt.
+                </p>
+            </div>
+            <button
+                type="button"
+                onClick={onResume}
+                className="rounded-lg bg-red-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700"
+            >
+                Resume Quiz
+            </button>
+        </div>
     );
 }
 
 export default function TakeQuiz({ quiz, questions, timing }: TakeQuizProps) {
-    const {
-        auth: { user },
-    } = usePage<PageProps>().props;
     const [answers, setAnswers] = useState<Record<number, number>>({});
     const [processing, setProcessing] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const autoSubmittedRef = useRef(false);
     const answersRef = useRef(answers);
+    const { blackout, resume, suspiciousCountRef } = useScreenshotDeterrent();
 
     useEffect(() => {
         answersRef.current = answers;
@@ -120,7 +178,10 @@ export default function TakeQuiz({ quiz, questions, timing }: TakeQuizProps) {
 
         router.post(
             `/student/quizzes/${quiz.id}`,
-            { answers: answersRef.current },
+            {
+                answers: answersRef.current,
+                suspicious_activity_count: suspiciousCountRef.current,
+            },
             {
                 onError: (formErrors) => {
                     setErrors(formErrors as Record<string, string>);
@@ -174,9 +235,12 @@ export default function TakeQuiz({ quiz, questions, timing }: TakeQuizProps) {
                         onContextMenu={blockContextMenu}
                         className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm select-none"
                     >
-                        <ScreenshotWatermark
-                            text={`${user.name} · ${user.email}`}
-                        />
+                        {blackout && (
+                            <BlackoutOverlay
+                                reason={blackout}
+                                onResume={resume}
+                            />
+                        )}
 
                         <div className="bg-gradient-to-r from-red-700 to-red-500 p-6 text-white">
                             <div className="flex items-center justify-between gap-3">
@@ -208,6 +272,12 @@ export default function TakeQuiz({ quiz, questions, timing }: TakeQuizProps) {
                                         </div>
                                     )}
                             </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-6 py-2 text-xs font-medium text-amber-700">
+                            <ShieldAlert className="size-3.5" />
+                            Screenshot attempts and leaving this tab are
+                            detected and logged for your professor.
                         </div>
 
                         <form onSubmit={submit} className="p-6">

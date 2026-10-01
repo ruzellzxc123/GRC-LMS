@@ -1,5 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Menu } from 'lucide-react';
 import { useState } from 'react';
 import AppLogoIcon from '@/components/app-logo-icon';
 import {
@@ -7,13 +7,24 @@ import {
     DropdownMenuTrigger,
     DropdownMenuContent,
 } from '@/components/ui/dropdown-menu';
+import {
+    Sheet,
+    SheetClose,
+    SheetContent,
+    SheetHeader,
+    SheetTitle,
+    SheetTrigger,
+} from '@/components/ui/sheet';
 import { UserInfo } from '@/components/user-info';
 import { UserMenuContent } from '@/components/user-menu-content';
+import { useCurrentUrl } from '@/hooks/use-current-url';
 import type { Auth } from '@/types/auth';
+import type { NavItem } from '@/types/navigation';
 
 interface FloatingIdentityBarProps {
     homeUrl: string;
     subtitle: string;
+    navigationItems: NavItem[];
 }
 
 interface PageProps {
@@ -29,8 +40,10 @@ const SHOWN_CLASSES = 'translate-y-0 opacity-100';
 export function FloatingIdentityBar({
     homeUrl,
     subtitle,
+    navigationItems,
 }: FloatingIdentityBarProps) {
     const { auth } = usePage<PageProps>().props;
+    const { isCurrentUrl } = useCurrentUrl();
     // Each pill is hidden until the pointer is right over its own corner —
     // no full-width hit-zone, and each is independent of the other.
     const [logoHovered, setLogoHovered] = useState(false);
@@ -44,22 +57,84 @@ export function FloatingIdentityBar({
     // without the pointer actually being anywhere near it.
     return (
         <div className="fixed inset-x-0 top-5 z-30 flex items-start justify-between px-4 md:px-8">
-            <div
-                className="w-fit"
-                onMouseEnter={() => setLogoHovered(true)}
-                onMouseLeave={() => setLogoHovered(false)}
-            >
-                <Link
-                    href={homeUrl}
-                    className={`flex items-center gap-2.5 rounded-full bg-white/90 py-1.5 pr-4 pl-1.5 shadow-[0_1px_2px_rgba(32,26,21,0.06),0_16px_40px_-20px_rgba(32,26,21,0.35)] backdrop-blur ${REVEAL_CLASSES} ${logoHovered ? SHOWN_CLASSES : HIDDEN_CLASSES}`}
+            <div className="flex items-center gap-2">
+                {/* Always visible — unlike the hover-reveal pills below,
+                    this is the one permanent, discoverable way into the
+                    navigation (the FloatingDock at the bottom is itself
+                    hover-only). */}
+                <Sheet>
+                    <SheetTrigger asChild>
+                        <button
+                            type="button"
+                            aria-label="Open navigation menu"
+                            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white/90 text-slate-700 shadow-[0_1px_2px_rgba(32,26,21,0.06),0_16px_40px_-20px_rgba(32,26,21,0.35)] backdrop-blur hover:bg-white"
+                        >
+                            <Menu className="size-5" />
+                        </button>
+                    </SheetTrigger>
+                    <SheetContent
+                        side="left"
+                        className="flex w-72 flex-col gap-0 bg-white p-0"
+                    >
+                        <SheetHeader className="border-b border-slate-100 px-5 py-4 text-left">
+                            <SheetTitle className="flex items-center gap-2.5 text-base font-bold text-slate-900">
+                                <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full">
+                                    <AppLogoIcon className="h-full w-full object-contain" />
+                                </span>
+                                {subtitle}
+                            </SheetTitle>
+                        </SheetHeader>
+                        <nav className="flex-1 space-y-1 overflow-y-auto p-3">
+                            {navigationItems.map((item) => {
+                                const Icon = item.icon;
+                                const active = isCurrentUrl(item.href);
+
+                                return (
+                                    <SheetClose key={item.title} asChild>
+                                        <Link
+                                            href={item.href}
+                                            prefetch
+                                            className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold ${
+                                                active
+                                                    ? 'bg-red-50 text-red-700'
+                                                    : 'text-slate-600 hover:bg-slate-50'
+                                            }`}
+                                        >
+                                            {Icon && (
+                                                <Icon className="size-5" />
+                                            )}
+                                            {item.title}
+                                            {item.hasBadge && (
+                                                <span
+                                                    aria-label="Pending notification"
+                                                    className="ml-auto size-2 shrink-0 rounded-full bg-red-600"
+                                                />
+                                            )}
+                                        </Link>
+                                    </SheetClose>
+                                );
+                            })}
+                        </nav>
+                    </SheetContent>
+                </Sheet>
+
+                <div
+                    className="w-fit"
+                    onMouseEnter={() => setLogoHovered(true)}
+                    onMouseLeave={() => setLogoHovered(false)}
                 >
-                    <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full">
-                        <AppLogoIcon className="h-full w-full object-contain" />
-                    </span>
-                    <span className="text-xs font-semibold text-slate-700">
-                        {subtitle}
-                    </span>
-                </Link>
+                    <Link
+                        href={homeUrl}
+                        className={`flex items-center gap-2.5 rounded-full bg-white/90 py-1.5 pr-4 pl-1.5 shadow-[0_1px_2px_rgba(32,26,21,0.06),0_16px_40px_-20px_rgba(32,26,21,0.35)] backdrop-blur ${REVEAL_CLASSES} ${logoHovered ? SHOWN_CLASSES : HIDDEN_CLASSES}`}
+                    >
+                        <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full">
+                            <AppLogoIcon className="h-full w-full object-contain" />
+                        </span>
+                        <span className="text-xs font-semibold text-slate-700">
+                            {subtitle}
+                        </span>
+                    </Link>
+                </div>
             </div>
 
             {auth?.user && (

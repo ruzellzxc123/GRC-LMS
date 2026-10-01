@@ -12,6 +12,7 @@ use App\Models\Courseware;
 use App\Models\Enrollment;
 use App\Models\QuizAttempt;
 use App\Services\CourseContentService;
+use App\Services\TermGradingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -22,7 +23,10 @@ use Inertia\Response;
 
 class StudentCourseController extends Controller
 {
-    public function __construct(private readonly CourseContentService $contentService) {}
+    public function __construct(
+        private readonly CourseContentService $contentService,
+        private readonly TermGradingService $gradingService,
+    ) {}
 
     public function index(Request $request): Response
     {
@@ -52,6 +56,8 @@ class StudentCourseController extends Controller
                 'subject' => $enrollment->courseware->subject,
                 'module_title' => $enrollment->courseware->module_title,
                 'professor' => $enrollment->courseware->professor,
+                'professor_avatar' => $enrollment->courseware->professorAccount?->avatar,
+                'section' => $enrollment->courseware->section,
                 'today_hyflex_mode' => $enrollment->courseware->todaysHyflexMode(),
             ]),
             'enroll_search' => [
@@ -113,10 +119,11 @@ class StudentCourseController extends Controller
 
         return Inertia::render('student/courses/show', [
             'courseware' => [
-                ...$courseware->only(['id', 'subject', 'module_title', 'professor']),
+                ...$courseware->only(['id', 'subject', 'module_title', 'professor', 'year_level', 'section']),
                 'meeting_link' => $courseware->meetingUrl(),
                 'uses_embedded_meeting' => $courseware->usesEmbeddedMeeting(),
             ],
+            'grade_overview' => $this->gradingService->studentOverview($courseware, auth()->id()),
             'quizzes' => $quizzes->map(fn ($quiz) => [
                 'id' => $quiz->id,
                 'title' => $quiz->title,
@@ -150,7 +157,9 @@ class StudentCourseController extends Controller
                             'timing_mode' => $item->timing_mode,
                             'time_limit_minutes' => $item->time_limit_minutes,
                             'week' => $week,
-                            'hyflex_mode' => $term && $week !== null && $courseware->hyflex_group
+                            'work_type' => $item->work_type,
+                            'delivery_mode' => $item->delivery_mode,
+                            'hyflex_mode' => ($item->delivery_mode === 'hyflex' && $term && $week !== null && $courseware->hyflex_group)
                                 ? $term->hyflexModeForWeek($week, $courseware->hyflex_group)
                                 : null,
                             'view' => $this->viewData($item, $myViews),
@@ -176,6 +185,9 @@ class StudentCourseController extends Controller
                                 'submitted_at' => $submission->submitted_at->toIso8601String(),
                                 'acknowledged_at' => $submission->acknowledged_at?->toIso8601String(),
                                 'score' => $submission->score,
+                                'grade' => $submission->score !== null
+                                    ? (int) round($submission->score / $item->max_points * 100)
+                                    : null,
                             ] : null,
                             'comments' => $item->comments->map(fn (ContentItemComment $comment) => [
                                 'id' => $comment->id,
@@ -199,20 +211,24 @@ class StudentCourseController extends Controller
                 ->exists(),
             404,
         );
+        abort_unless($courseware->isWithinTermSchedule(), 403, 'This subject\'s term is not active — meetings are only available during the scheduled semester.');
 
         $meetingUrl = $courseware->meetingUrl();
+        $jitsiDomain = config('services.jitsi.domain');
+        $session = $courseware->activeMeetingSession();
 
         return Inertia::render('student/courses/meeting', [
             'courseware' => $courseware->only(['id', 'subject']),
             'meeting' => [
                 'url' => $meetingUrl,
-                'domain' => 'meet.jit.si',
-                'room_name' => Str::after($meetingUrl, 'meet.jit.si/'),
+                'domain' => $jitsiDomain,
+                'room_name' => Str::afterLast($meetingUrl, '/'),
                 'is_embedded' => $courseware->usesEmbeddedMeeting(),
                 'is_live' => $courseware->isMeetingLive(),
                 'schedule_state' => $courseware->classScheduleState(),
                 'class_start_time' => $courseware->class_start_time?->format('H:i'),
                 'class_end_time' => $courseware->class_end_time?->format('H:i'),
+                'session_id' => $session?->id,
             ],
         ]);
     }

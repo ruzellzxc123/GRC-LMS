@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { Label } from '@/components/ui/label';
+import { useAnnouncementUpdates } from '@/hooks/use-live-updates';
 import type { Auth } from '@/types/auth';
 
 interface AcademicTermData {
@@ -21,7 +22,6 @@ interface AcademicTermData {
     midterm_end: string | null;
     finals_start: string | null;
     finals_end: string | null;
-    hyflex_first_f2f_group: string | null;
 }
 
 interface PendingDeadline {
@@ -198,20 +198,21 @@ function weekNumberForDate(date: Date, term: AcademicTermData): number | null {
 }
 
 /**
- * Whether a HyFlex group ("A" or "B") is face-to-face or online for a given
- * week number. Mirrors AcademicTerm::hyflexModeForWeek() on the backend: the
- * group set as the term's "first F2F group" is face-to-face on odd weeks and
- * online on even weeks; the other group is always the opposite.
+ * Whether a HyFlex group ("A" or "B") is face-to-face or synchronous for a
+ * given week number. Mirrors AcademicTerm::hyflexModeForWeek() on the
+ * backend: week 1 is always synchronous for both groups; from week 2 they
+ * alternate weekly, with group A synchronous on even weeks / face-to-face
+ * on odd weeks, and group B always the opposite that same week.
  */
-function hyflexModeForWeek(
-    week: number,
-    group: 'A' | 'B',
-    firstF2fGroup: string,
-): 'f2f' | 'online' {
-    const isOddWeek = week % 2 === 1;
-    const groupStartsF2f = group === firstF2fGroup;
+function hyflexModeForWeek(week: number, group: 'A' | 'B'): 'f2f' | 'online' {
+    if (week <= 1) {
+        return 'online';
+    }
 
-    return isOddWeek === groupStartsF2f ? 'f2f' : 'online';
+    const groupAIsSynchronousThisWeek = week % 2 === 0;
+    const isGroupA = group === 'A';
+
+    return isGroupA === groupAIsSynchronousThisWeek ? 'online' : 'f2f';
 }
 
 function getMonthGrid(year: number, month: number): Date[] {
@@ -291,6 +292,8 @@ export default function Calendar({
     my_classes,
     announcements,
 }: CalendarPageProps) {
+    useAnnouncementUpdates();
+
     const { auth } = usePage<PageProps>().props;
     const isStudent = auth?.user?.role === 'student';
     const isProfessor = auth?.user?.role === 'professor';
@@ -330,17 +333,16 @@ export default function Calendar({
 
     const todayHyflex = useMemo(() => {
         const term = findTermForDate(todayKey, terms);
-        const firstF2fGroup = term?.hyflex_first_f2f_group ?? null;
         const weekNumber = term ? weekNumberForDate(today, term) : null;
 
-        if (!firstF2fGroup || weekNumber === null) {
+        if (weekNumber === null) {
             return null;
         }
 
         return {
             week: weekNumber,
-            a: hyflexModeForWeek(weekNumber, 'A', firstF2fGroup),
-            b: hyflexModeForWeek(weekNumber, 'B', firstF2fGroup),
+            a: hyflexModeForWeek(weekNumber, 'A'),
+            b: hyflexModeForWeek(weekNumber, 'B'),
         };
     }, [terms, today, todayKey]);
 
@@ -470,13 +472,13 @@ export default function Calendar({
                                     HyFlex A ·{' '}
                                     {todayHyflex.a === 'f2f'
                                         ? 'Face-to-Face'
-                                        : 'Online'}
+                                        : 'Synchronous'}
                                 </span>
                                 <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 font-semibold text-white">
                                     HyFlex B ·{' '}
                                     {todayHyflex.b === 'f2f'
                                         ? 'Face-to-Face'
-                                        : 'Online'}
+                                        : 'Synchronous'}
                                 </span>
                             </div>
                         )}

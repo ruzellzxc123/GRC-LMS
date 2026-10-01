@@ -15,7 +15,6 @@ import BackLink from '@/components/back-link';
 interface Courseware {
     id: number;
     subject: string;
-    course_code: string | null;
 }
 
 interface EnrolledStudent {
@@ -116,9 +115,6 @@ export default function Enrollments({
 
                         <h1 className="mt-2 text-2xl font-bold">
                             {courseware.subject}
-                            {courseware.course_code
-                                ? ` (${courseware.course_code})`
-                                : ''}
                         </h1>
 
                         <p className="mt-2 text-sm text-red-100">

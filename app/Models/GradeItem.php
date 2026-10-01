@@ -8,6 +8,7 @@ class GradeItem extends Model
 {
     protected $fillable = [
         'grade_category_id',
+        'course_content_item_id',
         'title',
         'order',
         'max_points',
@@ -28,5 +29,16 @@ class GradeItem extends Model
     public function scores()
     {
         return $this->hasMany(GradeScore::class);
+    }
+
+    /**
+     * The uploaded module this grade item mirrors, when it was auto-created
+     * from a graded submission (Assignments/Activities) rather than typed
+     * in by hand (Recitation, Prelim Exam) — the link that lets a score
+     * edited here sync back to that submission, and vice versa.
+     */
+    public function contentItem()
+    {
+        return $this->belongsTo(CourseContentItem::class, 'course_content_item_id');
     }
 }

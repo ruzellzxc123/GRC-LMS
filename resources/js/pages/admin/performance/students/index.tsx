@@ -12,7 +12,7 @@ interface Prediction {
         student_id: string | null;
     };
     attendance_rate: number | null;
-    quiz_average: number | null;
+    academic_average: number | null;
     composite_score: number;
     label: string;
     risk_level: string;
@@ -126,7 +126,7 @@ export default function PerformanceStudents({
                                                 Attendance
                                             </th>
                                             <th className="px-5 py-3 font-semibold">
-                                                Quiz Avg
+                                                Academic Avg
                                             </th>
                                             <th className="px-5 py-3 font-semibold">
                                                 Score
@@ -169,7 +169,7 @@ export default function PerformanceStudents({
                                                 <td className="px-5 py-4">
                                                     <ScoreBar
                                                         value={
-                                                            prediction.quiz_average
+                                                            prediction.academic_average
                                                         }
                                                     />
                                                 </td>

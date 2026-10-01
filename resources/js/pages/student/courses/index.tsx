@@ -2,20 +2,40 @@ import { Head, Link, router } from '@inertiajs/react';
 import { BookOpen, LayoutDashboard, Plus, Search, X } from 'lucide-react';
 import { useState } from 'react';
 import type { FormEvent } from 'react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
     Dialog,
     DialogContent,
     DialogDescription,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { useInitials } from '@/hooks/use-initials';
 
 interface Course {
     id: number;
     subject: string;
     module_title: string;
     professor: string;
+    professor_avatar: string | null;
+    section: string | null;
     today_hyflex_mode: 'f2f' | 'online' | null;
 }
+
+// A stable, non-configurable color per subject (keyed off its id, not
+// randomized) so each card keeps the same banner color across reloads —
+// purely a visual variety touch, not tied to any subject property. Kept
+// entirely within the app's red/white brand palette (varying shade/warmth
+// only) instead of introducing unrelated brand colors like teal or indigo.
+const BANNER_GRADIENTS = [
+    'from-red-700 to-red-500',
+    'from-rose-700 to-rose-500',
+    'from-red-900 to-red-700',
+    'from-orange-700 to-red-600',
+    'from-rose-800 to-red-600',
+    'from-red-600 to-orange-500',
+    'from-red-800 to-rose-600',
+    'from-rose-600 to-orange-500',
+];
 
 interface EnrollableCourse {
     id: number;
@@ -41,6 +61,7 @@ export default function CoursesIndex({
 }: CoursesIndexProps) {
     const [showEnrollModal, setShowEnrollModal] = useState(false);
     const [search, setSearch] = useState('');
+    const getInitials = useInitials();
 
     const submitSearch = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -103,40 +124,68 @@ export default function CoursesIndex({
                     </section>
 
                     {courses.length > 0 ? (
-                        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
                             {courses.map((course) => (
                                 <Link
                                     key={course.id}
                                     href={`/student/courses/${course.id}`}
-                                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-red-300 hover:shadow-md"
+                                    className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md"
                                 >
-                                    <div className="w-fit rounded-xl bg-red-50 p-3 text-red-700">
-                                        <BookOpen className="size-6" />
+                                    <div
+                                        className={`relative bg-gradient-to-br p-4 pb-8 ${
+                                            BANNER_GRADIENTS[
+                                                course.id %
+                                                    BANNER_GRADIENTS.length
+                                            ]
+                                        }`}
+                                    >
+                                        <h3 className="line-clamp-2 pr-10 text-lg font-bold text-white">
+                                            {course.subject}
+                                        </h3>
+                                        <p className="mt-1 text-sm text-white/80">
+                                            Section{' '}
+                                            {course.section ?? 'Unassigned'}
+                                        </p>
+                                        <Avatar className="absolute right-4 -bottom-5 size-11 border-2 border-white shadow-sm">
+                                            <AvatarImage
+                                                src={
+                                                    course.professor_avatar ??
+                                                    undefined
+                                                }
+                                                alt={course.professor}
+                                            />
+                                            <AvatarFallback className="bg-white text-sm font-semibold text-slate-700">
+                                                {getInitials(
+                                                    course.professor,
+                                                )}
+                                            </AvatarFallback>
+                                        </Avatar>
                                     </div>
-                                    <h3 className="mt-4 font-semibold text-slate-900">
-                                        {course.subject}
-                                    </h3>
-                                    <p className="mt-1 text-sm text-slate-600">
-                                        {course.module_title}
-                                    </p>
-                                    <p className="mt-3 text-xs text-slate-500">
-                                        Professor: {course.professor}
-                                    </p>
-                                    {course.today_hyflex_mode && (
-                                        <span
-                                            className={`mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                                course.today_hyflex_mode ===
+
+                                    <div className="px-4 pt-7 pb-4">
+                                        <p className="truncate text-sm text-slate-600">
+                                            {course.module_title}
+                                        </p>
+                                        <p className="mt-1 truncate text-xs text-slate-500">
+                                            Prof. {course.professor}
+                                        </p>
+                                        {course.today_hyflex_mode && (
+                                            <span
+                                                className={`mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                                    course.today_hyflex_mode ===
+                                                    'f2f'
+                                                        ? 'bg-orange-100 text-orange-700'
+                                                        : 'bg-cyan-100 text-cyan-700'
+                                                }`}
+                                            >
+                                                Today:{' '}
+                                                {course.today_hyflex_mode ===
                                                 'f2f'
-                                                    ? 'bg-orange-100 text-orange-700'
-                                                    : 'bg-cyan-100 text-cyan-700'
-                                            }`}
-                                        >
-                                            Today:{' '}
-                                            {course.today_hyflex_mode === 'f2f'
-                                                ? 'Face-to-Face'
-                                                : 'Online'}
-                                        </span>
-                                    )}
+                                                    ? 'Face-to-Face'
+                                                    : 'Synchronous'}
+                                            </span>
+                                        )}
+                                    </div>
                                 </Link>
                             ))}
                         </div>

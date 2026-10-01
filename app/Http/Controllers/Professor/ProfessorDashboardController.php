@@ -97,7 +97,7 @@ class ProfessorDashboardController extends Controller
         $recentGraded = ContentItemSubmission::query()
             ->whereNotNull('graded_at')
             ->whereHas('item.category.courseware', fn ($query) => $query->where('professor_id', $professor->id))
-            ->with('student:id,name')
+            ->with(['student:id,name', 'item:id,max_points'])
             ->latest('graded_at')
             ->limit(5)
             ->get();
@@ -118,7 +118,9 @@ class ProfessorDashboardController extends Controller
             ->concat($recentGraded->map(fn (ContentItemSubmission $submission) => [
                 'type' => 'grade',
                 'title' => "Graded submission for {$submission->student->name}",
-                'meta' => $submission->score !== null ? "{$submission->score}%" : null,
+                'meta' => $submission->score !== null
+                    ? round($submission->score / $submission->item->max_points * 100).'%'
+                    : null,
                 'at' => $submission->graded_at,
             ]))
             ->sortByDesc('at')

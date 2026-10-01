@@ -17,7 +17,6 @@ interface Student {
     name: string;
     email: string;
     student_id: string | null;
-    program: string | null;
     year_level: string | null;
     section: string | null;
 }
@@ -173,10 +172,6 @@ export default function StudentsIndex({
                                                 </th>
 
                                                 <th className="px-5 py-3 font-semibold">
-                                                    Program
-                                                </th>
-
-                                                <th className="px-5 py-3 font-semibold">
                                                     Year Level
                                                 </th>
 
@@ -217,11 +212,6 @@ export default function StudentsIndex({
 
                                                     <td className="px-5 py-4 text-sm text-slate-600">
                                                         {student.section ??
-                                                            'Not assigned'}
-                                                    </td>
-
-                                                    <td className="px-5 py-4 text-sm text-slate-600">
-                                                        {student.program ??
                                                             'Not assigned'}
                                                     </td>
 

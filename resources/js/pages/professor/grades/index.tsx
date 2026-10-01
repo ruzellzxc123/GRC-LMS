@@ -4,7 +4,6 @@ import { ClipboardList, GraduationCap, Users } from 'lucide-react';
 interface CourseSummary {
     id: number;
     subject: string;
-    course_code: string | null;
     enrollments_count: number;
     quizzes_count: number;
 }
@@ -47,9 +46,6 @@ export default function GradesIndex({ courses }: GradesIndexProps) {
                                         <div className="min-w-0">
                                             <p className="truncate font-semibold text-slate-900">
                                                 {course.subject}
-                                                {course.course_code
-                                                    ? ` (${course.course_code})`
-                                                    : ''}
                                             </p>
                                             <div className="mt-1 flex items-center gap-4 text-xs text-slate-500">
                                                 <span className="inline-flex items-center gap-1">

@@ -1,7 +1,8 @@
 import { Form, Head, router, usePage } from '@inertiajs/react';
-import { Camera, Trash2 } from 'lucide-react';
+import { Camera, Mail, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
+import EmailChangeController from '@/actions/App/Http/Controllers/Settings/EmailChangeController';
 import ProfileController from '@/actions/App/Http/Controllers/Settings/ProfileController';
 import DeleteUser from '@/components/delete-user';
 import Heading from '@/components/heading';
@@ -10,15 +11,207 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { programs } from '@/constants/program';
 import { useInitials } from '@/hooks/use-initials';
 import { edit } from '@/routes/profile';
 import type { Auth } from '@/types';
+
+type EmailChangeStage = 'none' | 'confirm-old' | 'confirm-new';
+
 type PageProps = {
     auth: Auth;
     errors: Record<string, string>;
+    emailChangeStage: EmailChangeStage;
+    emailChangePendingEmail: string | null;
     [key: string]: unknown;
 };
+
+function ChangeEmail({
+    currentEmail,
+    stage,
+    pendingEmail,
+}: {
+    currentEmail: string;
+    stage: EmailChangeStage;
+    pendingEmail: string | null;
+}) {
+    const codeInput = useRef<HTMLInputElement>(null);
+    const [resending, setResending] = useState(false);
+    const [cancelling, setCancelling] = useState(false);
+
+    const resendCode = () => {
+        setResending(true);
+        router.post(
+            EmailChangeController.resendCode.url(),
+            {},
+            { preserveScroll: true, onFinish: () => setResending(false) },
+        );
+    };
+
+    const cancelChange = () => {
+        setCancelling(true);
+        router.delete(EmailChangeController.cancelUpdate.url(), {
+            preserveScroll: true,
+            onFinish: () => setCancelling(false),
+        });
+    };
+
+    return (
+        <div className="space-y-4 rounded-xl border border-slate-200 p-4">
+            <div className="flex items-center gap-2">
+                <Mail className="size-4 text-red-600" />
+                <h3 className="text-sm font-semibold text-slate-900">
+                    Change email
+                </h3>
+            </div>
+
+            {stage === 'none' && (
+                <Form
+                    {...EmailChangeController.requestUpdate.form()}
+                    options={{ preserveScroll: true }}
+                    resetOnSuccess
+                    className="grid gap-2"
+                >
+                    {({ errors, processing }) => (
+                        <>
+                            <Label htmlFor="new_email">New email address</Label>
+                            <Input
+                                id="new_email"
+                                type="email"
+                                name="email"
+                                placeholder="New email address"
+                                autoComplete="email"
+                            />
+                            <InputError message={errors.email} />
+                            <div>
+                                <Button
+                                    type="submit"
+                                    disabled={processing}
+                                    size="sm"
+                                >
+                                    Send verification code
+                                </Button>
+                            </div>
+                        </>
+                    )}
+                </Form>
+            )}
+
+            {stage === 'confirm-old' && (
+                <Form
+                    {...EmailChangeController.confirmOld.form()}
+                    options={{ preserveScroll: true }}
+                    resetOnError={['code']}
+                    onError={() => codeInput.current?.focus()}
+                    className="grid gap-2"
+                >
+                    {({ errors, processing }) => (
+                        <>
+                            <p className="text-sm text-muted-foreground">
+                                Enter the code we emailed to your current
+                                address ({currentEmail}) to confirm this
+                                request.
+                            </p>
+                            <Label htmlFor="old_code">Verification code</Label>
+                            <Input
+                                id="old_code"
+                                ref={codeInput}
+                                name="code"
+                                inputMode="numeric"
+                                autoComplete="one-time-code"
+                                maxLength={8}
+                                placeholder="8-digit code"
+                                className="max-w-xs text-center text-lg tracking-[0.3em]"
+                            />
+                            <InputError message={errors.code} />
+                            <div className="flex items-center gap-4">
+                                <Button
+                                    type="submit"
+                                    disabled={processing}
+                                    size="sm"
+                                >
+                                    Confirm
+                                </Button>
+                                <button
+                                    type="button"
+                                    onClick={resendCode}
+                                    disabled={resending}
+                                    className="text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+                                >
+                                    {resending ? 'Sending…' : 'Resend code'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={cancelChange}
+                                    disabled={cancelling}
+                                    className="text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </>
+                    )}
+                </Form>
+            )}
+
+            {stage === 'confirm-new' && (
+                <Form
+                    {...EmailChangeController.confirmNew.form()}
+                    options={{ preserveScroll: true }}
+                    resetOnError={['code']}
+                    onError={() => codeInput.current?.focus()}
+                    className="grid gap-2"
+                >
+                    {({ errors, processing }) => (
+                        <>
+                            <p className="text-sm text-muted-foreground">
+                                Enter the code we emailed to{' '}
+                                {pendingEmail ?? 'your new address'} to finish
+                                confirming it.
+                            </p>
+                            <Label htmlFor="new_code">Verification code</Label>
+                            <Input
+                                id="new_code"
+                                ref={codeInput}
+                                name="code"
+                                inputMode="numeric"
+                                autoComplete="one-time-code"
+                                maxLength={8}
+                                placeholder="8-digit code"
+                                className="max-w-xs text-center text-lg tracking-[0.3em]"
+                            />
+                            <InputError message={errors.code} />
+                            <div className="flex items-center gap-4">
+                                <Button
+                                    type="submit"
+                                    disabled={processing}
+                                    size="sm"
+                                >
+                                    Confirm
+                                </Button>
+                                <button
+                                    type="button"
+                                    onClick={resendCode}
+                                    disabled={resending}
+                                    className="text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+                                >
+                                    {resending ? 'Sending…' : 'Resend code'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={cancelChange}
+                                    disabled={cancelling}
+                                    className="text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </>
+                    )}
+                </Form>
+            )}
+        </div>
+    );
+}
 
 function AvatarUpload({ auth }: { auth: Auth }) {
     const getInitials = useInitials();
@@ -117,7 +310,8 @@ function AvatarUpload({ auth }: { auth: Auth }) {
 }
 
 export default function Profile() {
-    const { auth, errors } = usePage<PageProps>().props;
+    const { auth, errors, emailChangeStage, emailChangePendingEmail } =
+        usePage<PageProps>().props;
 
     return (
         <>
@@ -174,18 +368,17 @@ export default function Profile() {
                                 <Input
                                     id="email"
                                     type="email"
-                                    className="mt-1 block w-full"
+                                    className="mt-1 block w-full disabled:opacity-100"
                                     defaultValue={auth.user.email}
-                                    name="email"
-                                    required
+                                    disabled
                                     autoComplete="username"
-                                    placeholder="Email address"
                                 />
 
-                                <InputError
-                                    className="mt-2"
-                                    message={errors.email}
-                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Use "Change email" below to update this — it
+                                    takes a verification code to your current
+                                    and new address.
+                                </p>
                             </div>
                             <div className="grid gap-4 md:grid-cols-2">
                                 {auth.user.role === 'student' && (
@@ -277,33 +470,6 @@ export default function Profile() {
 
                                     <InputError message={errors.section} />
                                 </div>
-
-                                <div className="grid gap-2 md:col-span-2">
-                                    <Label htmlFor="program">Program</Label>
-
-                                    <select
-                                        id="program"
-                                        name="program"
-                                        required
-                                        defaultValue={auth.user.program ?? ''}
-                                        className="border-black-200 flex h-9 w-full rounded-md border px-3 py-1 text-sm text-slate-900 shadow-xs transition outline-none focus:border-red-500 focus:ring-3 focus:ring-red-200"
-                                    >
-                                        <option value="" disabled>
-                                            Select program
-                                        </option>
-
-                                        {programs.map((program) => (
-                                            <option
-                                                key={program}
-                                                value={program}
-                                            >
-                                                {program}
-                                            </option>
-                                        ))}
-                                    </select>
-
-                                    <InputError message={errors.program} />
-                                </div>
                             </div>
 
                             <div className="flex items-center gap-4">
@@ -317,6 +483,12 @@ export default function Profile() {
                         </>
                     )}
                 </Form>
+
+                <ChangeEmail
+                    currentEmail={auth.user.email}
+                    stage={emailChangeStage}
+                    pendingEmail={emailChangePendingEmail}
+                />
             </div>
 
             <DeleteUser />

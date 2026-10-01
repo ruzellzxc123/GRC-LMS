@@ -14,6 +14,7 @@ class QuizAttempt extends Model
         'started_at',
         'submitted_at',
         'selected_question_ids',
+        'suspicious_activity_count',
     ];
 
     protected function casts(): array
@@ -40,11 +41,11 @@ class QuizAttempt extends Model
         return $this->hasMany(QuizResponse::class);
     }
 
-    public function getScoreAttribute(): float
+    public function getScoreAttribute(): int
     {
         return $this->total_questions > 0
-            ? round($this->correct_count / $this->total_questions * 100, 1)
-            : 0.0;
+            ? (int) round($this->correct_count / $this->total_questions * 100)
+            : 0;
     }
 
     public function getDurationSecondsAttribute(): ?int

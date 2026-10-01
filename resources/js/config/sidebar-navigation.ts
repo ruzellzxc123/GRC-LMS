@@ -1,5 +1,5 @@
 import {
-    Award,
+    Archive,
     BarChart3,
     BookOpen,
     Calendar,
@@ -7,11 +7,13 @@ import {
     CalendarDays,
     ClipboardCheck,
     ClipboardList,
+    FileVideo,
     GraduationCap,
     LayoutDashboard,
     LibraryBig,
     MessageSquare,
     Users,
+    Video,
 } from 'lucide-react';
 import type { NavItem } from '@/types';
 
@@ -20,6 +22,11 @@ export const studentNavItems: NavItem[] = [
         title: 'Dashboard',
         href: '/student/dashboard',
         icon: LayoutDashboard,
+    },
+    {
+        title: 'To-Do',
+        href: '/student/todo',
+        icon: ClipboardList,
     },
     {
         title: 'My Subjects',
@@ -32,9 +39,9 @@ export const studentNavItems: NavItem[] = [
         icon: CalendarCheck,
     },
     {
-        title: 'Scores',
-        href: '/student/scores',
-        icon: Award,
+        title: 'Grades',
+        href: '/student/grades',
+        icon: GraduationCap,
     },
     {
         title: 'Feedback',
@@ -60,9 +67,19 @@ export const professorNavItems: NavItem[] = [
         icon: BookOpen,
     },
     {
+        title: 'Archived',
+        href: '/professor/courses/archived',
+        icon: Archive,
+    },
+    {
         title: 'Quizzes',
         href: '/professor/quizzes',
         icon: ClipboardList,
+    },
+    {
+        title: 'Class Reports',
+        href: '/professor/reports',
+        icon: FileVideo,
     },
     {
         title: 'Grades',
@@ -103,6 +120,16 @@ export const adminNavItems: NavItem[] = [
         icon: BookOpen,
     },
     {
+        title: 'Live Classes',
+        href: '/admin/live-classes',
+        icon: Video,
+    },
+    {
+        title: 'Archived',
+        href: '/admin/archived',
+        icon: Archive,
+    },
+    {
         title: 'Departments',
         href: '/admin/departments',
         icon: LibraryBig,
@@ -126,6 +153,11 @@ export const adminNavItems: NavItem[] = [
         title: 'Reports',
         href: '/admin/reports',
         icon: BarChart3,
+    },
+    {
+        title: 'Class Reports',
+        href: '/admin/class-reports',
+        icon: FileVideo,
     },
     {
         title: 'Calendar',

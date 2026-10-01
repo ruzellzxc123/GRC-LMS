@@ -92,7 +92,7 @@ class StudentDashboardController extends Controller
             ->concat($gradedSubmissions->map(fn (ContentItemSubmission $submission) => [
                 'type' => 'grade',
                 'title' => "Graded: {$submission->item->title}",
-                'meta' => "{$submission->score}%",
+                'meta' => round($submission->score / $submission->item->max_points * 100).'%',
                 'at' => $submission->graded_at,
             ]))
             ->sortByDesc('at')
@@ -112,7 +112,7 @@ class StudentDashboardController extends Controller
                 'label' => $prediction['label'],
                 'risk_level' => $prediction['risk_level'],
                 'attendance_rate' => $prediction['attendance_rate'],
-                'quiz_average' => $prediction['quiz_average'],
+                'academic_average' => $prediction['academic_average'],
                 'flags' => $prediction['flags'],
             ],
             'performance_trend' => $quizAttempts->take(-8)->values()->map(fn (QuizAttempt $attempt) => [

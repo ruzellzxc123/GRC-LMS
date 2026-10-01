@@ -12,6 +12,7 @@ class AcademicTerm extends Model
 
     protected $fillable = [
         'name',
+        'semester',
         'start_date',
         'end_date',
         'prelims_start',
@@ -20,7 +21,6 @@ class AcademicTerm extends Model
         'midterm_end',
         'finals_start',
         'finals_end',
-        'hyflex_first_f2f_group',
     ];
 
     protected $casts = [
@@ -86,21 +86,22 @@ class AcademicTerm extends Model
     }
 
     /**
-     * Whether a HyFlex group ("A" or "B") is face-to-face or online for a
-     * given week number. The group set as `hyflex_first_f2f_group` is
-     * face-to-face on odd weeks (1, 3, 5...) and online on even weeks; the
-     * other group is always the mirror opposite that same week. Returns
-     * null when the admin hasn't configured a HyFlex schedule for this term.
+     * Whether a HyFlex group ("A" or "B") is face-to-face or synchronous for
+     * a given week number — a fixed rule, not a per-term configurable
+     * choice. Week 1 is always synchronous for both groups (no one comes to
+     * campus in week 1). From week 2 onward the groups alternate weekly:
+     * group A is synchronous on even weeks / face-to-face on odd weeks, and
+     * group B is always the mirror opposite that same week.
      */
     public function hyflexModeForWeek(int $week, string $group): ?string
     {
-        if ($this->hyflex_first_f2f_group === null) {
-            return null;
+        if ($week <= 1) {
+            return 'online';
         }
 
-        $isOddWeek = $week % 2 === 1;
-        $groupStartsF2f = $group === $this->hyflex_first_f2f_group;
+        $groupAIsSynchronousThisWeek = $week % 2 === 0;
+        $isGroupA = $group === 'A';
 
-        return $isOddWeek === $groupStartsF2f ? 'f2f' : 'online';
+        return $isGroupA === $groupAIsSynchronousThisWeek ? 'online' : 'f2f';
     }
 }

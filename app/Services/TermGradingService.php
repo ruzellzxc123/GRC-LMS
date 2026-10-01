@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Attendance;
+use App\Models\CourseContentItem;
 use App\Models\Courseware;
 use App\Models\GradeCategory;
 use App\Models\GradeItem;
@@ -211,41 +212,21 @@ final class TermGradingService
     }
 
     /**
-     * The official grade for Midterm or Finals: a weighted composite of the
-     * previous period's cumulative grade and this period's own grade, using
-     * the subject's configured split for that fold. Prelims has no previous
-     * period, so its own period grade is already the official grade.
+     * The subject's official overall grade: Prelims, Midterm, and Finals
+     * each carry a direct, independent share (the subject's configured
+     * split, always summing to 100%) rather than folding one into the
+     * next — renormalized over whichever terms actually have a grade yet,
+     * so a subject with only Prelims graded shows that term's grade alone
+     * instead of a fraction of it.
      */
-    public function cumulativeGrade(Courseware $courseware, string $term, ?float $previousGrade, ?float $periodGrade): ?float
+    public function overallGrade(Courseware $courseware, ?float $prelimsGrade, ?float $midtermGrade, ?float $finalsGrade): ?float
     {
-        if ($term === 'prelims') {
-            return $periodGrade;
-        }
-
-        if ($previousGrade === null && $periodGrade === null) {
-            return null;
-        }
-
-        if ($periodGrade === null) {
-            return $previousGrade;
-        }
-
-        if ($previousGrade === null) {
-            return $periodGrade;
-        }
-
-        [$previousWeight, $periodWeight] = match ($term) {
-            'midterm' => [(float) $courseware->prelims_weight, (float) $courseware->midterm_period_weight],
-            'finals' => [(float) $courseware->midterm_weight, (float) $courseware->finals_weight],
-            default => [0.0, 0.0],
-        };
-
-        return round(
-            ($previousWeight / 100 * $previousGrade) + ($periodWeight / 100 * $periodGrade),
-            2,
-        );
+        return $this->weightedAverage(collect([
+            ['weight' => (float) $courseware->prelims_weight, 'average' => $prelimsGrade],
+            ['weight' => (float) $courseware->midterm_weight, 'average' => $midtermGrade],
+            ['weight' => (float) $courseware->finals_weight, 'average' => $finalsGrade],
+        ]));
     }
-
 
     public function enrolledStudents(Courseware $courseware): Collection
     {
@@ -409,5 +390,103 @@ final class TermGradingService
             'quizzes' => $quizzes,
             'rows' => $rows,
         ];
+    }
+
+    /**
+     * One student's row (plus category averages and term grade) for a
+     * single term of one courseware — the shared building block behind
+     * both the professor's gradebook and the student's own read-only
+     * grade views, so "what's my grade in this category" is always
+     * computed exactly one way.
+     */
+    public function studentTermData(Courseware $courseware, string $term, int $studentId): array
+    {
+        $categories = $this->categoriesForTerm($courseware, $term);
+        $table = $this->buildTermTable($courseware, $term, $categories);
+        $row = collect($table['rows'])->firstWhere('student_id', $studentId) ?? [
+            'item_scores' => [],
+            'item_displays' => [],
+            'category_averages' => [],
+            'term_grade' => null,
+        ];
+
+        return ['categories' => $categories, 'table' => $table, 'row' => $row, 'grade' => $row['term_grade']];
+    }
+
+    /**
+     * A compact, all-three-terms snapshot of one student's standing in one
+     * courseware: each term's running overall grade (Prelims/Midterm/Finals
+     * weighted directly, renormalized over whichever terms are graded so
+     * far) plus its category breakdown — everything a student needs to
+     * judge "am I doing well in this subject" without drilling into the
+     * full per-item gradebook.
+     */
+    public function studentOverview(Courseware $courseware, int $studentId): array
+    {
+        $grades = [];
+        $overview = [];
+
+        foreach (self::TERMS as $term) {
+            $data = $this->studentTermData($courseware, $term, $studentId);
+            $grades[$term] = $data['grade'];
+
+            $overallSoFar = $this->overallGrade(
+                $courseware,
+                $grades['prelims'] ?? null,
+                $term === 'prelims' ? null : ($grades['midterm'] ?? null),
+                $term === 'finals' ? ($grades['finals'] ?? null) : null,
+            );
+
+            $overview[$term] = [
+                'cumulative_grade' => $overallSoFar,
+                'categories' => $data['categories']->map(fn (GradeCategory $category) => [
+                    'name' => $category->name,
+                    'weight' => (float) $category->weight,
+                    'average' => $data['row']['category_averages'][$category->id] ?? null,
+                ])->values(),
+            ];
+        }
+
+        return $overview;
+    }
+
+    /**
+     * The single grade item standing in for one uploaded module within a
+     * category — created once per (category, content item) pair and reused
+     * from then on, so a score entered against it either from grading a
+     * submission or from editing the gradebook directly always lands on the
+     * same row instead of silently drifting into two unsynced copies.
+     * Existing items synced before this link existed are matched by title
+     * once and backfilled with it, so both edit paths converge going
+     * forward.
+     */
+    public function resolveGradeItemForContentItem(GradeCategory $category, CourseContentItem $contentItem): GradeItem
+    {
+        $gradeItem = GradeItem::where('grade_category_id', $category->id)
+            ->where('course_content_item_id', $contentItem->id)
+            ->first();
+
+        if ($gradeItem) {
+            return $gradeItem;
+        }
+
+        $gradeItem = GradeItem::where('grade_category_id', $category->id)
+            ->whereNull('course_content_item_id')
+            ->where('title', $contentItem->title)
+            ->first();
+
+        if ($gradeItem) {
+            $gradeItem->update(['course_content_item_id' => $contentItem->id]);
+
+            return $gradeItem;
+        }
+
+        return GradeItem::create([
+            'grade_category_id' => $category->id,
+            'course_content_item_id' => $contentItem->id,
+            'title' => $contentItem->title,
+            'order' => $category->items()->count(),
+            'max_points' => $contentItem->max_points,
+        ]);
     }
 }

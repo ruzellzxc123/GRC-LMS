@@ -31,7 +31,6 @@ class CreateNewUser implements CreatesNewUsers
             'birthday' => $input['birthday'],
             'year_level' => $input['year_level'],
             'section' => $input['section'],
-            'program' => $input['program'],
             'password' => $input['password'],
         ]);
     }

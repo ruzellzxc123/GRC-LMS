@@ -8,23 +8,27 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { appendGmailDomain } from '@/lib/email-format';
-import { formatStudentIdSuffix } from '@/lib/id-format';
 import { getSectionOptions } from '@/lib/section-options';
 import { login } from '@/routes';
 import { store } from '@/routes/register';
+
+const inputClassName =
+    'border-red-200 bg-white focus-visible:border-red-500 focus-visible:ring-red-200';
+const selectClassName =
+    'flex h-9 w-full rounded-md border border-red-200 bg-white px-3 py-1 text-sm shadow-xs transition-colors outline-none focus-visible:border-red-500 focus-visible:ring-[3px] focus-visible:ring-red-200 disabled:cursor-not-allowed disabled:opacity-50';
 
 type Props = {
     passwordRules?: string;
     adminMode?: boolean;
     accountType?: 'student' | 'professor';
+    studentIdPrefix: string;
 };
-
-const ENROLLMENT_YEAR = new Date().getFullYear();
 
 export default function Register({
     passwordRules,
     adminMode = false,
     accountType = 'student',
+    studentIdPrefix,
 }: Props) {
     const isAdminCreatingStudent = adminMode && accountType === 'student';
     const [yearLevel, setYearLevel] = useState('');
@@ -71,6 +75,7 @@ export default function Register({
                                     autoComplete="name"
                                     name="name"
                                     placeholder="Enter full name"
+                                    className={inputClassName}
                                 />
 
                                 <InputError
@@ -86,8 +91,8 @@ export default function Register({
                                 </Label>
 
                                 <div className="flex items-center gap-2">
-                                    <span className="flex h-9 shrink-0 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
-                                        {ENROLLMENT_YEAR}-
+                                    <span className="flex h-9 shrink-0 items-center rounded-md border border-red-200 bg-red-50 px-3 text-sm text-red-700">
+                                        {studentIdPrefix}
                                     </span>
 
                                     <Input
@@ -96,28 +101,29 @@ export default function Register({
                                         required
                                         tabIndex={2}
                                         autoComplete="off"
-                                        placeholder="00-00000"
-                                        maxLength={8}
+                                        placeholder="00000"
+                                        maxLength={5}
                                         value={studentIdSuffix}
                                         onChange={(event) =>
                                             setStudentIdSuffix(
-                                                formatStudentIdSuffix(
-                                                    event.currentTarget.value,
-                                                ),
+                                                event.currentTarget.value
+                                                    .replace(/\D/g, '')
+                                                    .slice(0, 5),
                                             )
                                         }
+                                        className={`w-28 ${inputClassName}`}
                                     />
                                 </div>
 
-                                <p className="text-xs text-muted-foreground">
-                                    The ID starts with the current enrollment
-                                    year ({ENROLLMENT_YEAR}) automatically.
+                                <p className="text-xs text-slate-500">
+                                    The year and month are filled in
+                                    automatically — just add a 5-digit number.
                                 </p>
 
                                 <input
                                     type="hidden"
                                     name="student_id"
-                                    value={`${ENROLLMENT_YEAR}-${studentIdSuffix}`}
+                                    value={`${studentIdPrefix}${studentIdSuffix}`}
                                 />
 
                                 <InputError message={errors.student_id} />
@@ -141,6 +147,7 @@ export default function Register({
                                                 event.currentTarget.value,
                                             );
                                     }}
+                                    className={inputClassName}
                                 />
 
                                 <InputError message={errors.email} />
@@ -155,41 +162,10 @@ export default function Register({
                                     type="date"
                                     tabIndex={4}
                                     name="birthday"
+                                    className={inputClassName}
                                 />
 
                                 <InputError message={errors.birthday} />
-                            </div>
-
-                            {/* Program */}
-                            <div className="grid gap-2">
-                                <Label htmlFor="program">Program</Label>
-
-                                <select
-                                    id="program"
-                                    name="program"
-                                    required
-                                    tabIndex={5}
-                                    defaultValue=""
-                                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                    <option value="" disabled>
-                                        Select a program
-                                    </option>
-
-                                    <option value="Bachelor of Science In Computer Science">
-                                        Bachelor of Science In Computer Science
-                                    </option>
-
-                                    <option value="Bachelor of Science In Education">
-                                        Bachelor of Science In Education
-                                    </option>
-
-                                    <option value="Bachelor of Science In Accounting">
-                                        Bachelor of Science In Accounting
-                                    </option>
-                                </select>
-
-                                <InputError message={errors.program} />
                             </div>
 
                             {/* Year level and section */}
@@ -203,12 +179,12 @@ export default function Register({
                                         id="year_level"
                                         name="year_level"
                                         required
-                                        tabIndex={6}
+                                        tabIndex={5}
                                         value={yearLevel}
                                         onChange={(event) =>
                                             setYearLevel(event.target.value)
                                         }
-                                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                                        className={selectClassName}
                                     >
                                         <option value="" disabled>
                                             Select year level
@@ -242,10 +218,10 @@ export default function Register({
                                         id="section"
                                         name="section"
                                         required
-                                        tabIndex={7}
+                                        tabIndex={6}
                                         disabled={sectionOptions.length === 0}
                                         defaultValue=""
-                                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                                        className={selectClassName}
                                     >
                                         <option value="" disabled>
                                             {sectionOptions.length === 0
@@ -274,11 +250,12 @@ export default function Register({
                                 <PasswordInput
                                     id="password"
                                     required
-                                    tabIndex={8}
+                                    tabIndex={7}
                                     autoComplete="new-password"
                                     name="password"
                                     placeholder="Password"
                                     passwordrules={passwordRules}
+                                    className={inputClassName}
                                 />
 
                                 <InputError message={errors.password} />
@@ -293,11 +270,12 @@ export default function Register({
                                 <PasswordInput
                                     id="password_confirmation"
                                     required
-                                    tabIndex={9}
+                                    tabIndex={8}
                                     autoComplete="new-password"
                                     name="password_confirmation"
                                     placeholder="Confirm password"
                                     passwordrules={passwordRules}
+                                    className={inputClassName}
                                 />
 
                                 <InputError
@@ -309,7 +287,7 @@ export default function Register({
                             <Button
                                 type="submit"
                                 className="mt-2 w-full bg-red-700 text-white hover:bg-red-800"
-                                tabIndex={10}
+                                tabIndex={9}
                                 data-test="register-user-button"
                             >
                                 {processing && <Spinner />}
@@ -322,9 +300,13 @@ export default function Register({
 
                         {/* Only show login link publicly */}
                         {!adminMode && (
-                            <div className="text-center text-sm text-muted-foreground">
+                            <div className="text-center text-sm text-slate-500">
                                 Already have an account?{' '}
-                                <TextLink href={login()} tabIndex={11}>
+                                <TextLink
+                                    href={login()}
+                                    tabIndex={10}
+                                    className="text-red-600 decoration-red-300 hover:text-red-800"
+                                >
                                     Log in
                                 </TextLink>
                             </div>

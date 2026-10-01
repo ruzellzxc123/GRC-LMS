@@ -31,7 +31,6 @@ class CalendarController extends Controller
                 'midterm_end',
                 'finals_start',
                 'finals_end',
-                'hyflex_first_f2f_group',
             ]);
 
         $pendingDeadlines = $this->notifications->pendingQuizDeadlines($user)

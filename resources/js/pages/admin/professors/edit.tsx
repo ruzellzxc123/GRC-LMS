@@ -5,7 +5,7 @@ import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { formatIdNumber } from '@/lib/id-format';
+import { formatProfessorId } from '@/lib/id-format';
 
 interface Professor {
     id: number;
@@ -13,7 +13,6 @@ interface Professor {
     name: string;
     email: string;
     department: string | null;
-    program: string | null;
     is_active: boolean;
 }
 
@@ -81,12 +80,12 @@ export default function EditProfessor({
                                             defaultValue={
                                                 professor.professor_id ?? ''
                                             }
-                                            placeholder="0000-00-00000"
-                                            maxLength={13}
+                                            placeholder="0000-000"
+                                            maxLength={8}
                                             required
                                             onInput={(event) => {
                                                 event.currentTarget.value =
-                                                    formatIdNumber(
+                                                    formatProfessorId(
                                                         event.currentTarget
                                                             .value,
                                                     );
@@ -156,40 +155,6 @@ export default function EditProfessor({
                                         <InputError
                                             message={errors.department}
                                         />
-                                    </div>
-
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="program">Program</Label>
-
-                                        <select
-                                            id="program"
-                                            name="program"
-                                            defaultValue={
-                                                professor.program ?? ''
-                                            }
-                                            required
-                                            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-                                        >
-                                            <option value="" disabled>
-                                                Select a program
-                                            </option>
-
-                                            <option value="Bachelor of Science In Computer Science">
-                                                Bachelor of Science In Computer
-                                                Science
-                                            </option>
-
-                                            <option value="Bachelor of Science In Education">
-                                                Bachelor of Science In Education
-                                            </option>
-
-                                            <option value="Bachelor of Science In Accounting">
-                                                Bachelor of Science In
-                                                Accounting
-                                            </option>
-                                        </select>
-
-                                        <InputError message={errors.program} />
                                     </div>
 
                                     <div className="flex justify-end gap-3 border-t border-slate-200 pt-5">

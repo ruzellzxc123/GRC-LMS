@@ -43,6 +43,9 @@ function loadJitsiScript(domain: string): Promise<void> {
     return scriptLoadPromise;
 }
 
+export type RecordingStatus =
+    'not_recording' | 'recording' | 'stopped' | 'unavailable';
+
 interface JitsiMeetingProps {
     domain: string;
     roomName: string;
@@ -51,6 +54,11 @@ interface JitsiMeetingProps {
     /** The intended host — auto-enables the waiting room once they join. */
     isModerator: boolean;
     onLeave: () => void;
+    /** Only the moderator's choice at "Start Meeting" ever triggers this. */
+    autoStartRecording?: boolean;
+    onJoined?: () => void;
+    onChatMessage?: (body: string) => void;
+    onRecordingStatusChange?: (status: RecordingStatus) => void;
 }
 
 const TOOLBAR_BUTTONS = [
@@ -66,6 +74,7 @@ const TOOLBAR_BUTTONS = [
     'filmstrip',
     'security',
     'tileview',
+    'recording',
     'mute-everyone',
     'mute-video-everyone',
 ];
@@ -79,6 +88,10 @@ export default function JitsiMeeting({
     email,
     isModerator,
     onLeave,
+    autoStartRecording = false,
+    onJoined,
+    onChatMessage,
+    onRecordingStatusChange,
 }: JitsiMeetingProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const apiRef = useRef<JitsiMeetAPI | null>(null);
@@ -167,11 +180,50 @@ export default function JitsiMeeting({
                 api.addEventListener('videoConferenceJoined', () => {
                     if (isModerator) {
                         api.executeCommand('toggleLobby', true);
+
+                        if (autoStartRecording) {
+                            api.executeCommand('startRecording', {
+                                mode: 'file',
+                            });
+                        }
                     }
+
+                    onJoined?.();
                 });
 
                 api.addEventListener('readyToClose', () => {
                     onLeave();
+                });
+
+                // Only the local user's own outgoing messages are reported —
+                // every participant's client receives the same
+                // incomingMessage broadcast, so listening to that instead
+                // would log each chat message once per participant.
+                api.addEventListener('outgoingMessage', (...args) => {
+                    const event = args[0] as { message?: string };
+
+                    if (event.message) {
+                        onChatMessage?.(event.message);
+                    }
+                });
+
+                // Broadcasts to every participant, but only the moderator's
+                // browser reports it back — avoids every connected student
+                // redundantly posting the same status.
+                api.addEventListener('recordingStatusChanged', (...args) => {
+                    if (!isModerator) {
+                        return;
+                    }
+
+                    const event = args[0] as { on?: boolean; error?: string };
+
+                    if (event.error) {
+                        onRecordingStatusChange?.('unavailable');
+                    } else {
+                        onRecordingStatusChange?.(
+                            event.on ? 'recording' : 'stopped',
+                        );
+                    }
                 });
             })
             .catch(() => {

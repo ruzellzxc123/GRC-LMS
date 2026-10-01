@@ -1,21 +1,19 @@
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
-    ClipboardCheck,
+    ChevronDown,
+    ChevronRight,
     Eye,
-    EyeOff,
     File as FileIcon,
-    FileText,
-    LinkIcon,
-    Pencil,
     Save,
     Sparkles,
     UploadCloud,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import BackLink from '@/components/back-link';
-import ContentCommentThread from '@/components/content-comment-thread';
+import ContentItemCard from '@/components/content-item-card';
 import type { CommentItem } from '@/components/content-comment-thread';
+import { useCourseUpdates } from '@/hooks/use-live-updates';
 import {
     Dialog,
     DialogContent,
@@ -52,7 +50,8 @@ interface ContentItem {
     is_published: boolean;
     timing_mode: 'timestamp' | 'timer';
     time_limit_minutes: number | null;
-    work_type: 'assignment' | 'activity';
+    work_type: 'assignment' | 'activity' | 'learning_material';
+    delivery_mode: 'hyflex' | 'asynchronous';
     week: number | null;
     hyflex_mode: 'f2f' | 'online' | null;
     submissions_count: number;
@@ -69,7 +68,8 @@ interface ContentCategory {
 interface Courseware {
     id: number;
     subject: string;
-    course_code: string | null;
+    year_level: string | null;
+    section: string | null;
 }
 
 interface PageProps {
@@ -86,6 +86,8 @@ export default function CourseContent({
     courseware,
     categories,
 }: CourseContentProps) {
+    useCourseUpdates(courseware.id);
+
     const { errors } = usePage<PageProps>().props;
     const [activeCategoryId, setActiveCategoryId] = useState(
         categories[0]?.id ?? null,
@@ -96,11 +98,59 @@ export default function CourseContent({
         categories[0] ??
         null;
 
+    const weekGroups = useMemo(() => {
+        if (!activeCategory) {
+            return [];
+        }
+
+        const groups = new Map<number | null, ContentItem[]>();
+
+        for (const item of activeCategory.items) {
+            const existing = groups.get(item.week);
+
+            if (existing) {
+                existing.push(item);
+            } else {
+                groups.set(item.week, [item]);
+            }
+        }
+
+        return Array.from(groups.entries()).sort(([a], [b]) => {
+            if (a === null) {
+                return 1;
+            }
+
+            if (b === null) {
+                return -1;
+            }
+
+            return a - b;
+        });
+    }, [activeCategory]);
+
+    const [collapsedWeeks, setCollapsedWeeks] = useState<
+        Set<number | null>
+    >(new Set());
+
+    const toggleWeek = (week: number | null) => {
+        setCollapsedWeeks((current) => {
+            const next = new Set(current);
+
+            if (next.has(week)) {
+                next.delete(week);
+            } else {
+                next.add(week);
+            }
+
+            return next;
+        });
+    };
+
     // Upload New modal
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [uploadTitle, setUploadTitle] = useState('');
     const [uploadWorkType, setUploadWorkType] = useState<
-        'assignment' | 'activity'
+        'assignment' | 'activity' | 'learning_material'
     >('activity');
     const [uploadDescription, setUploadDescription] = useState('');
     const [uploadLink, setUploadLink] = useState('');
@@ -189,7 +239,10 @@ export default function CourseContent({
                         ? Number(uploadTimeLimitMinutes)
                         : null,
                 deadline: uploadDeadline || null,
-                max_points: uploadMaxPoints || 100,
+                max_points:
+                    uploadWorkType === 'learning_material'
+                        ? 100
+                        : uploadMaxPoints || 100,
             },
             {
                 forceFormData: true,
@@ -225,11 +278,17 @@ export default function CourseContent({
                         </div>
                         <h1 className="mt-2 text-2xl font-bold">
                             {courseware.subject}
-                            {courseware.course_code
-                                ? ` (${courseware.course_code})`
-                                : ''}
                         </h1>
-                        <p className="mt-2 text-sm text-red-100">
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <span className="inline-flex items-center rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold">
+                                {courseware.year_level ??
+                                    'Year level unassigned'}
+                            </span>
+                            <span className="inline-flex items-center rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold">
+                                Section {courseware.section ?? 'unassigned'}
+                            </span>
+                        </div>
+                        <p className="mt-3 text-sm text-red-100">
                             Upload materials and activities under Prelims,
                             Midterm, or Finals — students can submit work for
                             anything posted here. New uploads start as drafts —
@@ -281,188 +340,75 @@ export default function CourseContent({
                                     </div>
 
                                     {activeCategory.items.length > 0 ? (
-                                        <ul className="mt-4 divide-y divide-slate-100">
-                                            {activeCategory.items.map(
-                                                (item) => (
-                                                    <li
-                                                        key={item.id}
-                                                        className="flex items-start justify-between gap-4 py-4"
+                                        <div className="mt-4 space-y-4">
+                                            {weekGroups.map(
+                                                ([week, items]) => (
+                                                    <div
+                                                        key={week ?? 'unscheduled'}
+                                                        className="overflow-hidden rounded-xl border border-slate-200"
                                                     >
-                                                        <div className="min-w-0">
-                                                            {(item.week ||
-                                                                item.hyflex_mode) && (
-                                                                <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                                                                    {item.week && (
-                                                                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                                                                            Week{' '}
-                                                                            {
-                                                                                item.week
-                                                                            }
-                                                                        </span>
-                                                                    )}
-                                                                    {item.hyflex_mode && (
-                                                                        <span
-                                                                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                                                                item.hyflex_mode ===
-                                                                                'f2f'
-                                                                                    ? 'bg-orange-100 text-orange-700'
-                                                                                    : 'bg-cyan-100 text-cyan-700'
-                                                                            }`}
-                                                                        >
-                                                                            {item.hyflex_mode ===
-                                                                            'f2f'
-                                                                                ? 'Face-to-Face'
-                                                                                : 'Online'}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                            <div className="flex items-center gap-2">
-                                                                {activeCategory.requires_submission ? (
-                                                                    <Link
-                                                                        href={`/admin/courses/${courseware.id}/content/items/${item.id}/submissions`}
-                                                                        title="View student submissions"
-                                                                        className="font-medium text-slate-900 hover:text-red-700 hover:underline"
-                                                                    >
-                                                                        {
-                                                                            item.title
-                                                                        }
-                                                                    </Link>
-                                                                ) : (
-                                                                    <p className="font-medium text-slate-900">
-                                                                        {
-                                                                            item.title
-                                                                        }
-                                                                    </p>
-                                                                )}
-                                                                <span
-                                                                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                                                        item.is_published
-                                                                            ? 'bg-emerald-100 text-emerald-700'
-                                                                            : 'bg-amber-100 text-amber-700'
-                                                                    }`}
-                                                                >
-                                                                    {item.is_published
-                                                                        ? 'Published'
-                                                                        : 'Draft'}
-                                                                </span>
-                                                                <span
-                                                                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                                                        item.work_type ===
-                                                                        'assignment'
-                                                                            ? 'bg-indigo-100 text-indigo-700'
-                                                                            : 'bg-teal-100 text-teal-700'
-                                                                    }`}
-                                                                >
-                                                                    {item.work_type ===
-                                                                    'assignment'
-                                                                        ? 'Assignment'
-                                                                        : 'Activity'}
-                                                                </span>
-                                                                {activeCategory.requires_submission && (
-                                                                    <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
-                                                                        Requires
-                                                                        Submission
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                            {item.description && (
-                                                                <p className="mt-1 text-sm text-slate-600">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                toggleWeek(
+                                                                    week,
+                                                                )
+                                                            }
+                                                            className="flex w-full items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2 text-left hover:bg-slate-100"
+                                                        >
+                                                            <h3 className="text-sm font-bold text-slate-700">
+                                                                {week !== null
+                                                                    ? `Week ${week}`
+                                                                    : 'Unscheduled'}
+                                                                <span className="ml-1.5 font-normal text-slate-400">
+                                                                    (
                                                                     {
-                                                                        item.description
+                                                                        items.length
                                                                     }
-                                                                </p>
-                                                            )}
-                                                            <div className="mt-2 flex flex-wrap gap-4">
-                                                                {item.file_url && (
-                                                                    <a
-                                                                        href={
-                                                                            item.file_url
-                                                                        }
-                                                                        target="_blank"
-                                                                        rel="noopener noreferrer"
-                                                                        className="inline-flex items-center gap-1.5 text-sm font-semibold text-red-700 hover:text-red-800"
-                                                                    >
-                                                                        <FileText className="size-3.5" />
-                                                                        {item.file_name ??
-                                                                            'Download file'}
-                                                                    </a>
-                                                                )}
-                                                                {item.link && (
-                                                                    <a
-                                                                        href={
-                                                                            item.link
-                                                                        }
-                                                                        target="_blank"
-                                                                        rel="noopener noreferrer"
-                                                                        className="inline-flex items-center gap-1.5 text-sm font-semibold text-red-700 hover:text-red-800"
-                                                                    >
-                                                                        <LinkIcon className="size-3.5" />
-                                                                        Open
-                                                                        link
-                                                                    </a>
-                                                                )}
-                                                                {activeCategory.requires_submission && (
-                                                                    <Link
-                                                                        href={`/admin/courses/${courseware.id}/content/items/${item.id}/submissions`}
-                                                                        className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-700 hover:text-blue-800"
-                                                                    >
-                                                                        <ClipboardCheck className="size-3.5" />
-                                                                        View
-                                                                        Submissions
-                                                                        (
-                                                                        {
-                                                                            item.submissions_count
-                                                                        }
-                                                                        )
-                                                                    </Link>
-                                                                )}
-                                                            </div>
-                                                            <ContentCommentThread
-                                                                comments={
-                                                                    item.comments
-                                                                }
-                                                                postUrl={`/admin/courses/${courseware.id}/content/items/${item.id}/comments`}
-                                                            />
-                                                        </div>
-                                                        <div className="flex shrink-0 gap-2">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() =>
-                                                                    togglePublish(
-                                                                        item,
                                                                     )
-                                                                }
-                                                                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-semibold ${
-                                                                    item.is_published
-                                                                        ? 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                                                                        : 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
-                                                                }`}
-                                                            >
-                                                                {item.is_published ? (
-                                                                    <>
-                                                                        <EyeOff className="size-3.5" />
-                                                                        Unpublish
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        <Eye className="size-3.5" />
-                                                                        Publish
-                                                                    </>
-                                                                )}
-                                                            </button>
-                                                            <Link
-                                                                href={`/admin/courses/${courseware.id}/content/items/${item.id}/edit`}
-                                                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                                                            >
-                                                                <Pencil className="size-3.5" />
-                                                                Edit
-                                                            </Link>
+                                                                </span>
+                                                            </h3>
+                                                            {collapsedWeeks.has(
+                                                                week,
+                                                            ) ? (
+                                                                <ChevronRight className="size-4 shrink-0 text-slate-500" />
+                                                            ) : (
+                                                                <ChevronDown className="size-4 shrink-0 text-slate-500" />
+                                                            )}
+                                                        </button>
+                                                        {!collapsedWeeks.has(
+                                                            week,
+                                                        ) && (
+                                                        <div className="grid gap-3 p-4">
+                                                            {items.map(
+                                                                (item) => (
+                                                                    <ContentItemCard
+                                                                        key={
+                                                                            item.id
+                                                                        }
+                                                                        item={
+                                                                            item
+                                                                        }
+                                                                        requiresSubmission={
+                                                                            activeCategory.requires_submission
+                                                                        }
+                                                                        onTogglePublish={() =>
+                                                                            togglePublish(
+                                                                                item,
+                                                                            )
+                                                                        }
+                                                                        editHref={`/admin/courses/${courseware.id}/content/items/${item.id}/edit`}
+                                                                        submissionsHref={`/admin/courses/${courseware.id}/content/items/${item.id}/submissions`}
+                                                                        commentsPostUrl={`/admin/courses/${courseware.id}/content/items/${item.id}/comments`}
+                                                                    />
+                                                                ),
+                                                            )}
                                                         </div>
-                                                    </li>
+                                                        )}
+                                                    </div>
                                                 ),
                                             )}
-                                        </ul>
+                                        </div>
                                     ) : (
                                         <p className="mt-6 text-center text-sm text-slate-500">
                                             No items in this category yet.
@@ -543,7 +489,9 @@ export default function CourseContent({
                                 onChange={(event) =>
                                     setUploadWorkType(
                                         event.target.value as
-                                            'assignment' | 'activity',
+                                            | 'assignment'
+                                            | 'activity'
+                                            | 'learning_material',
                                     )
                                 }
                                 required
@@ -551,7 +499,15 @@ export default function CourseContent({
                             >
                                 <option value="activity">Activity</option>
                                 <option value="assignment">Assignment</option>
+                                <option value="learning_material">
+                                    Learning Material
+                                </option>
                             </select>
+                            <p className="text-xs text-slate-500">
+                                {uploadWorkType === 'learning_material'
+                                    ? "Just a resource for students to read — no points, no quiz, no submission required."
+                                    : 'Gradable work — set a point total below.'}
+                            </p>
                             {errors.work_type && (
                                 <p className="text-xs text-red-600">
                                     {errors.work_type}
@@ -676,34 +632,36 @@ export default function CourseContent({
                             )}
                         </div>
 
-                        <div className="grid gap-1.5">
-                            <label
-                                htmlFor="upload_max_points"
-                                className="text-xs font-medium text-slate-600"
-                            >
-                                Total Points
-                            </label>
-                            <input
-                                id="upload_max_points"
-                                type="number"
-                                min={1}
-                                value={uploadMaxPoints}
-                                onChange={(event) =>
-                                    setUploadMaxPoints(event.target.value)
-                                }
-                                placeholder="100"
-                                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                            />
-                            <p className="text-xs text-slate-500">
-                                What this item is graded out of — defaults to
-                                100 if left blank.
-                            </p>
-                            {errors.max_points && (
-                                <p className="text-xs text-red-600">
-                                    {errors.max_points}
+                        {uploadWorkType !== 'learning_material' && (
+                            <div className="grid gap-1.5">
+                                <label
+                                    htmlFor="upload_max_points"
+                                    className="text-xs font-medium text-slate-600"
+                                >
+                                    Total Points
+                                </label>
+                                <input
+                                    id="upload_max_points"
+                                    type="number"
+                                    min={1}
+                                    value={uploadMaxPoints}
+                                    onChange={(event) =>
+                                        setUploadMaxPoints(event.target.value)
+                                    }
+                                    placeholder="100"
+                                    className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                />
+                                <p className="text-xs text-slate-500">
+                                    What this item is graded out of — defaults
+                                    to 100 if left blank.
                                 </p>
-                            )}
-                        </div>
+                                {errors.max_points && (
+                                    <p className="text-xs text-red-600">
+                                        {errors.max_points}
+                                    </p>
+                                )}
+                            </div>
+                        )}
 
                         <div className="grid gap-1.5">
                             <label

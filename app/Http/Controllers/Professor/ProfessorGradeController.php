@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Professor;
 
+use App\Events\CourseContentUpdated;
 use App\Http\Controllers\Controller;
+use App\Models\ContentItemSubmission;
 use App\Models\Courseware;
 use App\Models\GradeCategory;
 use App\Models\GradeItem;
@@ -37,7 +39,6 @@ class ProfessorGradeController extends Controller
             'courses' => $courses->map(fn (Courseware $course) => [
                 'id' => $course->id,
                 'subject' => $course->subject,
-                'course_code' => $course->course_code,
                 'enrollments_count' => $course->enrollments_count,
                 'quizzes_count' => $course->quizzes_count,
             ]),
@@ -64,25 +65,14 @@ class ProfessorGradeController extends Controller
         if ($term === 'finals') {
             $midtermCategories = $this->gradingService->categoriesForTerm($courseware, 'midterm');
             $midtermTable = $this->gradingService->buildTermTable($courseware, 'midterm', $midtermCategories);
-            $midtermGrades = collect($midtermTable['rows'])->map(function (array $row) use ($courseware, $prelimsGrades) {
-                $prelimsRow = $prelimsGrades->get($row['student_id']);
-                $row['cumulative_grade'] = $this->gradingService->cumulativeGrade(
-                    $courseware,
-                    'midterm',
-                    $prelimsRow['term_grade'] ?? null,
-                    $row['term_grade'],
-                );
-
-                return $row;
-            })->keyBy('student_id');
+            $midtermGrades = collect($midtermTable['rows'])->keyBy('student_id');
         }
 
         return Inertia::render('professor/grades/show', [
-            'courseware' => $courseware->only(['id', 'subject', 'course_code']),
+            'courseware' => $courseware->only(['id', 'subject']),
             'term' => $term,
             'termWeights' => [
                 'prelims_weight' => (float) $courseware->prelims_weight,
-                'midterm_period_weight' => (float) $courseware->midterm_period_weight,
                 'midterm_weight' => (float) $courseware->midterm_weight,
                 'finals_weight' => (float) $courseware->finals_weight,
             ],
@@ -109,25 +99,17 @@ class ProfessorGradeController extends Controller
             ]),
             'rows' => collect($table['rows'])->map(function (array $row) use ($courseware, $term, $prelimsGrades, $midtermGrades) {
                 if ($term === 'prelims') {
-                    $row['cumulative_grade'] = $row['term_grade'];
+                    $row['cumulative_grade'] = $this->gradingService->overallGrade($courseware, $row['term_grade'], null, null);
                 } elseif ($term === 'midterm') {
                     $prelimsRow = $prelimsGrades?->get($row['student_id']);
                     $row['prelims_grade'] = $prelimsRow['term_grade'] ?? null;
-                    $row['cumulative_grade'] = $this->gradingService->cumulativeGrade(
-                        $courseware,
-                        'midterm',
-                        $row['prelims_grade'],
-                        $row['term_grade'],
-                    );
+                    $row['cumulative_grade'] = $this->gradingService->overallGrade($courseware, $row['prelims_grade'], $row['term_grade'], null);
                 } elseif ($term === 'finals') {
+                    $prelimsRow = $prelimsGrades?->get($row['student_id']);
                     $midtermRow = $midtermGrades?->get($row['student_id']);
-                    $row['midterm_grade'] = $midtermRow['cumulative_grade'] ?? null;
-                    $row['cumulative_grade'] = $this->gradingService->cumulativeGrade(
-                        $courseware,
-                        'finals',
-                        $row['midterm_grade'],
-                        $row['term_grade'],
-                    );
+                    $row['prelims_grade'] = $prelimsRow['term_grade'] ?? null;
+                    $row['midterm_grade'] = $midtermRow['term_grade'] ?? null;
+                    $row['cumulative_grade'] = $this->gradingService->overallGrade($courseware, $row['prelims_grade'], $row['midterm_grade'], $row['term_grade']);
                 }
 
                 return $row;
@@ -161,6 +143,8 @@ class ProfessorGradeController extends Controller
             GradeCategory::where('id', $entry['id'])->update(['weight' => $entry['weight']]);
         }
 
+        CourseContentUpdated::dispatchSafely($courseware->id);
+
         return Redirect::route('professor.grades.term', [$courseware, $term])
             ->with('success', 'Category weights were updated successfully.');
     }
@@ -170,27 +154,30 @@ class ProfessorGradeController extends Controller
         abort_unless($courseware->professor_id === auth()->id(), 403);
 
         $validated = $request->validate([
-            'fold' => ['required', Rule::in(['midterm', 'finals'])],
-            'previous_weight' => ['required', 'numeric', 'min:0', 'max:100'],
-            'period_weight' => ['required', 'numeric', 'min:0', 'max:100'],
+            'term' => ['required', Rule::in(TermGradingService::TERMS)],
+            'prelims_weight' => ['required', 'numeric', 'min:0', 'max:100'],
+            'midterm_weight' => ['required', 'numeric', 'min:0', 'max:100'],
+            'finals_weight' => ['required', 'numeric', 'min:0', 'max:100'],
         ]);
 
-        $total = round($validated['previous_weight'] + $validated['period_weight'], 2);
+        $total = round($validated['prelims_weight'] + $validated['midterm_weight'] + $validated['finals_weight'], 2);
 
         if (abs($total - 100.0) > 0.01) {
             return back()
-                ->withErrors(['term_weights' => "The two weights must add up to exactly 100%. They currently add up to {$total}%."])
+                ->withErrors(['term_weights' => "Prelims, Midterm, and Finals must add up to exactly 100%. They currently add up to {$total}%."])
                 ->withInput();
         }
 
-        $columns = $validated['fold'] === 'midterm'
-            ? ['prelims_weight' => $validated['previous_weight'], 'midterm_period_weight' => $validated['period_weight']]
-            : ['midterm_weight' => $validated['previous_weight'], 'finals_weight' => $validated['period_weight']];
+        $courseware->update([
+            'prelims_weight' => $validated['prelims_weight'],
+            'midterm_weight' => $validated['midterm_weight'],
+            'finals_weight' => $validated['finals_weight'],
+        ]);
 
-        $courseware->update($columns);
+        CourseContentUpdated::dispatchSafely($courseware->id);
 
-        return Redirect::route('professor.grades.term', [$courseware, $validated['fold']])
-            ->with('success', 'Term composition was updated successfully.');
+        return Redirect::route('professor.grades.term', [$courseware, $validated['term']])
+            ->with('success', 'Term weights were updated successfully.');
     }
 
     public function storeItem(Request $request, Courseware $courseware, GradeCategory $category): RedirectResponse
@@ -211,6 +198,8 @@ class ProfessorGradeController extends Controller
             'max_points' => $validated['max_points'] ?? 100,
         ]);
 
+        CourseContentUpdated::dispatchSafely($courseware->id);
+
         return Redirect::route('professor.grades.term', [$courseware, $category->term])
             ->with('success', 'Grade item was added successfully.');
     }
@@ -222,6 +211,8 @@ class ProfessorGradeController extends Controller
 
         $term = $item->category->term;
         $item->delete();
+
+        CourseContentUpdated::dispatchSafely($courseware->id);
 
         return Redirect::route('professor.grades.term', [$courseware, $term])
             ->with('success', 'Grade item was removed successfully.');
@@ -236,7 +227,7 @@ class ProfessorGradeController extends Controller
         $items = GradeItem::whereHas(
             'category',
             fn ($query) => $query->where('courseware_id', $courseware->id)->where('term', $term),
-        )->get(['id', 'max_points'])->keyBy('id');
+        )->get(['id', 'max_points', 'course_content_item_id'])->keyBy('id');
 
         // Quiz scores are read-only (always the actual attempt result), so
         // this only ever saves manual grade items — Recitation, Prelim Exam,
@@ -261,17 +252,53 @@ class ProfessorGradeController extends Controller
                     ->where('student_id', $entry['student_id'])
                     ->delete();
 
+                $this->syncScoreToSubmission($item, $entry['student_id'], null);
+
                 continue;
             }
 
+            $score = min($entry['score'], $item->max_points);
+
             GradeScore::updateOrCreate(
                 ['grade_item_id' => $entry['id'], 'student_id' => $entry['student_id']],
-                ['score' => min($entry['score'], $item->max_points)],
+                ['score' => $score],
             );
+
+            $this->syncScoreToSubmission($item, $entry['student_id'], $score);
         }
+
+        CourseContentUpdated::dispatchSafely($courseware->id);
 
         return Redirect::route('professor.grades.term', [$courseware, $term])
             ->with('success', 'Grades were updated successfully.');
+    }
+
+    /**
+     * The other half of the sync: a score edited here in the gradebook, for
+     * an item that was originally auto-populated from a graded submission,
+     * writes back to that submission too — so the Submissions tab never
+     * shows a stale number after the gradebook was the one actually edited.
+     * A no-op for items with no linked submission (Recitation, Prelim Exam)
+     * or where the student never actually submitted anything to update.
+     */
+    private function syncScoreToSubmission(GradeItem $item, int $studentId, ?int $score): void
+    {
+        if ($item->course_content_item_id === null) {
+            return;
+        }
+
+        $submission = ContentItemSubmission::where('course_content_item_id', $item->course_content_item_id)
+            ->where('student_id', $studentId)
+            ->first();
+
+        if (! $submission) {
+            return;
+        }
+
+        $submission->update([
+            'score' => $score,
+            'graded_at' => $score !== null ? now() : null,
+        ]);
     }
 
     public function export(Courseware $courseware, string $term): StreamedResponse

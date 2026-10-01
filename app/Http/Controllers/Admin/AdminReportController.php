@@ -37,7 +37,7 @@ class AdminReportController extends Controller
 
                 return [
                     'id' => $course->id,
-                    'title' => $course->subject.($course->course_code ? " ({$course->course_code})" : ''),
+                    'title' => $course->subject,
                     'summary' => sprintf(
                         '%d students enrolled · %s avg attendance · %s avg quiz score',
                         $course->enrollments_count,

@@ -7,7 +7,6 @@ import BackLink from '@/components/back-link';
 interface Courseware {
     id: number;
     subject: string;
-    course_code: string | null;
 }
 
 interface Category {
@@ -25,7 +24,8 @@ interface ExistingItem {
     is_published: boolean;
     timing_mode: 'timestamp' | 'timer';
     time_limit_minutes: number | null;
-    work_type: 'assignment' | 'activity';
+    work_type: 'assignment' | 'activity' | 'learning_material';
+    delivery_mode: 'hyflex' | 'asynchronous';
     deadline: string | null;
     max_points: number;
 }
@@ -67,9 +67,9 @@ export default function ContentUpload({
 }: ContentUploadProps) {
     const { errors } = usePage<PageProps>().props;
     const [title, setTitle] = useState(item.title);
-    const [workType, setWorkType] = useState<'assignment' | 'activity'>(
-        item.work_type,
-    );
+    const [workType, setWorkType] = useState<
+        'assignment' | 'activity' | 'learning_material'
+    >(item.work_type);
     const [description, setDescription] = useState(item.description ?? '');
     const [link, setLink] = useState(item.link ?? '');
     const [file, setFile] = useState<File | null>(null);
@@ -140,7 +140,10 @@ export default function ContentUpload({
                         ? Number(timeLimitMinutes)
                         : null,
                 deadline: deadline || null,
-                max_points: maxPoints || 100,
+                max_points:
+                    workType === 'learning_material'
+                        ? 100
+                        : maxPoints || 100,
                 _method: 'put',
             },
             {
@@ -163,9 +166,6 @@ export default function ContentUpload({
                     <section className="rounded-2xl bg-gradient-to-r from-red-700 to-red-500 p-6 text-white shadow-sm">
                         <div className="flex items-center gap-2 text-sm text-red-100">
                             {courseware.subject}
-                            {courseware.course_code
-                                ? ` (${courseware.course_code})`
-                                : ''}
                         </div>
                         <h1 className="mt-2 text-2xl font-bold">
                             Edit {category.name}
@@ -217,7 +217,9 @@ export default function ContentUpload({
                                     onChange={(event) =>
                                         setWorkType(
                                             event.target.value as
-                                                'assignment' | 'activity',
+                                                | 'assignment'
+                                                | 'activity'
+                                                | 'learning_material',
                                         )
                                     }
                                     required
@@ -227,7 +229,15 @@ export default function ContentUpload({
                                     <option value="assignment">
                                         Assignment
                                     </option>
+                                    <option value="learning_material">
+                                        Learning Material
+                                    </option>
                                 </select>
+                                <p className="text-xs text-slate-500">
+                                    {workType === 'learning_material'
+                                        ? 'Just a resource for students to read — no points, no quiz, no submission required.'
+                                        : 'Gradable work — set a point total below.'}
+                                </p>
                                 {errors.work_type && (
                                     <p className="text-xs text-red-600">
                                         {errors.work_type}
@@ -352,34 +362,36 @@ export default function ContentUpload({
                                 )}
                             </div>
 
-                            <div className="grid gap-1.5">
-                                <label
-                                    htmlFor="max_points"
-                                    className="text-xs font-medium text-slate-600"
-                                >
-                                    Total Points
-                                </label>
-                                <input
-                                    id="max_points"
-                                    type="number"
-                                    min={1}
-                                    value={maxPoints}
-                                    onChange={(event) =>
-                                        setMaxPoints(event.target.value)
-                                    }
-                                    placeholder="100"
-                                    className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                                />
-                                <p className="text-xs text-slate-500">
-                                    What this item is graded out of — defaults
-                                    to 100 if left blank.
-                                </p>
-                                {errors.max_points && (
-                                    <p className="text-xs text-red-600">
-                                        {errors.max_points}
+                            {workType !== 'learning_material' && (
+                                <div className="grid gap-1.5">
+                                    <label
+                                        htmlFor="max_points"
+                                        className="text-xs font-medium text-slate-600"
+                                    >
+                                        Total Points
+                                    </label>
+                                    <input
+                                        id="max_points"
+                                        type="number"
+                                        min={1}
+                                        value={maxPoints}
+                                        onChange={(event) =>
+                                            setMaxPoints(event.target.value)
+                                        }
+                                        placeholder="100"
+                                        className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                    />
+                                    <p className="text-xs text-slate-500">
+                                        What this item is graded out of —
+                                        defaults to 100 if left blank.
                                     </p>
-                                )}
-                            </div>
+                                    {errors.max_points && (
+                                        <p className="text-xs text-red-600">
+                                            {errors.max_points}
+                                        </p>
+                                    )}
+                                </div>
+                            )}
 
                             <div className="grid gap-1.5">
                                 <label

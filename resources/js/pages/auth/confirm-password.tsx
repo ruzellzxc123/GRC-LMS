@@ -6,12 +6,15 @@ import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { store } from '@/routes/password/confirm';
 
+const inputClassName =
+    'border-red-200 bg-white focus-visible:border-red-500 focus-visible:ring-red-200';
+
 export default function ConfirmPassword() {
     return (
         <>
             <Head title="Confirm password" />
 
-            <div className="mb-4 text-sm text-muted-foreground">
+            <div className="mb-4 text-sm text-slate-500">
                 This is a secure area of the application. Please confirm your
                 password before continuing.
             </div>
@@ -25,7 +28,7 @@ export default function ConfirmPassword() {
                                 id="password"
                                 name="password"
                                 autoComplete="current-password"
-                                className="mt-1 block w-full"
+                                className={`mt-1 block w-full ${inputClassName}`}
                                 autoFocus
                                 placeholder="Password"
                             />
@@ -34,7 +37,7 @@ export default function ConfirmPassword() {
 
                         <Button
                             type="submit"
-                            className="w-full"
+                            className="w-full bg-red-600 text-white hover:bg-red-700"
                             disabled={processing}
                         >
                             {processing && <Spinner />}

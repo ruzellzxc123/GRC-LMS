@@ -17,12 +17,17 @@ import type { ChangeEvent } from 'react';
 import BackLink from '@/components/back-link';
 import ContentCommentThread from '@/components/content-comment-thread';
 import type { CommentItem } from '@/components/content-comment-thread';
+import { WORK_TYPE_META } from '@/components/content-item-card';
+import type { WorkType } from '@/components/content-item-card';
+import { useCourseUpdates } from '@/hooks/use-live-updates';
 
 interface Courseware {
     id: number;
     subject: string;
     module_title: string;
     professor: string;
+    year_level: string | null;
+    section: string | null;
     meeting_link: string | null;
     uses_embedded_meeting: boolean;
 }
@@ -44,6 +49,7 @@ interface MySubmission {
     submitted_at: string;
     acknowledged_at: string | null;
     score: number | null;
+    grade: number | null;
 }
 
 interface ContentItemViewData {
@@ -62,6 +68,8 @@ interface ContentItem {
     timing_mode: 'timestamp' | 'timer';
     time_limit_minutes: number | null;
     week: number | null;
+    work_type: WorkType;
+    delivery_mode: 'hyflex' | 'asynchronous';
     hyflex_mode: 'f2f' | 'online' | null;
     deadline: string | null;
     can_submit: boolean;
@@ -79,10 +87,58 @@ interface ContentCategory {
     items: ContentItem[];
 }
 
+interface GradeOverviewCategory {
+    name: string;
+    weight: number;
+    average: number | null;
+}
+
+interface GradeOverviewTerm {
+    cumulative_grade: number | null;
+    categories: GradeOverviewCategory[];
+}
+
+interface GradeOverview {
+    prelims: GradeOverviewTerm;
+    midterm: GradeOverviewTerm;
+    finals: GradeOverviewTerm;
+}
+
 interface ShowCourseProps {
     courseware: Courseware;
     quizzes: QuizSummary[];
     content_categories: ContentCategory[];
+    grade_overview: GradeOverview;
+}
+
+const TERM_LABELS: Record<keyof GradeOverview, string> = {
+    prelims: 'Prelims',
+    midterm: 'Midterm',
+    finals: 'Finals',
+};
+
+function formatGrade(grade: number | null): string {
+    return grade === null ? '—' : `${Math.round(grade)}%`;
+}
+
+function gradeTone(grade: number | null): string {
+    if (grade === null) {
+        return 'text-slate-400';
+    }
+
+    if (grade >= 85) {
+        return 'text-emerald-600';
+    }
+
+    if (grade >= 70) {
+        return 'text-slate-900';
+    }
+
+    if (grade >= 50) {
+        return 'text-amber-600';
+    }
+
+    return 'text-red-600';
 }
 
 function formatDeadline(date: string | null): string {
@@ -116,7 +172,15 @@ function HyflexModeBadge({ mode }: { mode: 'f2f' | 'online' | null }) {
                     : 'bg-cyan-100 text-cyan-700'
             }`}
         >
-            {mode === 'f2f' ? 'Face-to-Face' : 'Online'}
+            {mode === 'f2f' ? 'Face-to-Face' : 'Synchronous'}
+        </span>
+    );
+}
+
+function AsynchronousBadge() {
+    return (
+        <span className="inline-flex items-center rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
+            Asynchronous
         </span>
     );
 }
@@ -371,7 +435,8 @@ function SubmissionUpload({ item }: { item: ContentItem }) {
                     )}
                     {item.my_submission.score !== null && (
                         <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                            Score: {item.my_submission.score}/{item.max_points}
+                            Grade: {item.my_submission.grade}% (
+                            {item.my_submission.score}/{item.max_points})
                         </span>
                     )}
                 </div>
@@ -413,7 +478,10 @@ export default function ShowCourse({
     courseware,
     quizzes,
     content_categories,
+    grade_overview,
 }: ShowCourseProps) {
+    useCourseUpdates(courseware.id);
+
     // Files and links open in a new tab, so "leaving" a module means this
     // tab loses and then regains focus/visibility — that's the closest
     // signal we have to the student being done reading it.
@@ -459,7 +527,15 @@ export default function ShowCourse({
         })),
     );
 
-    const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+    // Deep-linked from the To-Do page ("?item=123") — jump straight to that
+    // piece of classwork instead of landing on the plain list.
+    const [selectedItemId, setSelectedItemId] = useState<number | null>(() => {
+        const fromQuery = new URLSearchParams(window.location.search).get(
+            'item',
+        );
+
+        return fromQuery ? Number(fromQuery) : null;
+    });
 
     const selected = materialItems.find(
         ({ item }) => item.id === selectedItemId,
@@ -509,6 +585,83 @@ export default function ShowCourse({
                         <p className="mt-1 text-sm text-red-100">
                             Professor: {courseware.professor}
                         </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <span className="inline-flex items-center rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold">
+                                {courseware.year_level ??
+                                    'Year level unassigned'}
+                            </span>
+                            <span className="inline-flex items-center rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold">
+                                Section {courseware.section ?? 'unassigned'}
+                            </span>
+                        </div>
+                    </section>
+
+                    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+                            <h2 className="font-semibold text-slate-900">
+                                Your Performance
+                            </h2>
+                            <Link
+                                href={`/student/courses/${courseware.id}/grades/prelims`}
+                                className="text-sm font-semibold text-red-700 hover:underline"
+                            >
+                                Full Breakdown →
+                            </Link>
+                        </div>
+                        <div className="grid divide-y divide-slate-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                            {(
+                                Object.keys(TERM_LABELS) as Array<
+                                    keyof GradeOverview
+                                >
+                            ).map((term) => {
+                                const data = grade_overview[term];
+
+                                return (
+                                    <div key={term} className="p-5">
+                                        <div className="flex items-center justify-between">
+                                            <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">
+                                                {TERM_LABELS[term]}
+                                            </p>
+                                            <p
+                                                className={`text-lg font-bold ${gradeTone(data.cumulative_grade)}`}
+                                            >
+                                                {formatGrade(
+                                                    data.cumulative_grade,
+                                                )}
+                                            </p>
+                                        </div>
+                                        <ul className="mt-3 space-y-1.5">
+                                            {data.categories.map(
+                                                (category) => (
+                                                    <li
+                                                        key={category.name}
+                                                        className="flex items-center justify-between text-xs text-slate-600"
+                                                    >
+                                                        <span>
+                                                            {category.name}{' '}
+                                                            <span className="text-slate-400">
+                                                                (
+                                                                {
+                                                                    category.weight
+                                                                }
+                                                                %)
+                                                            </span>
+                                                        </span>
+                                                        <span
+                                                            className={`font-semibold ${gradeTone(category.average)}`}
+                                                        >
+                                                            {formatGrade(
+                                                                category.average,
+                                                            )}
+                                                        </span>
+                                                    </li>
+                                                ),
+                                            )}
+                                        </ul>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </section>
 
                     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -533,71 +686,124 @@ export default function ShowCourse({
                                 <div className="mt-4 grid gap-6 lg:grid-cols-2">
                                     {/* Module — the material the professor uploaded */}
                                     <div>
-                                        <p className="text-xs font-semibold tracking-wide text-slate-400 uppercase">
-                                            {selected.categoryName}
-                                        </p>
-                                        {(selected.item.week ||
-                                            selected.item.hyflex_mode) && (
-                                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                                {selected.item.week && (
-                                                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                                                        Week{' '}
-                                                        {selected.item.week}
+                                        <div className="flex items-start gap-3.5 rounded-2xl border border-slate-200 bg-white p-5">
+                                            <span
+                                                className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${WORK_TYPE_META[selected.item.work_type].iconWrapClass}`}
+                                            >
+                                                {(() => {
+                                                    const TypeIcon =
+                                                        WORK_TYPE_META[
+                                                            selected.item
+                                                                .work_type
+                                                        ].icon;
+                                                    return (
+                                                        <TypeIcon className="size-5" />
+                                                    );
+                                                })()}
+                                            </span>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-xs font-semibold tracking-wide text-slate-400 uppercase">
+                                                    {selected.categoryName}
+                                                </p>
+                                                <h3 className="mt-1 text-xl font-bold text-slate-900">
+                                                    {selected.item.title}
+                                                </h3>
+                                                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                                    <span
+                                                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${WORK_TYPE_META[selected.item.work_type].badgeClass}`}
+                                                    >
+                                                        {
+                                                            WORK_TYPE_META[
+                                                                selected.item
+                                                                    .work_type
+                                                            ].label
+                                                        }
                                                     </span>
-                                                )}
-                                                <HyflexModeBadge
-                                                    mode={
-                                                        selected.item
-                                                            .hyflex_mode
-                                                    }
-                                                />
+                                                    {selected.item.week && (
+                                                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                                                            Week{' '}
+                                                            {
+                                                                selected.item
+                                                                    .week
+                                                            }
+                                                        </span>
+                                                    )}
+                                                    <HyflexModeBadge
+                                                        mode={
+                                                            selected.item
+                                                                .hyflex_mode
+                                                        }
+                                                    />
+                                                    {selected.item
+                                                        .delivery_mode ===
+                                                        'asynchronous' && (
+                                                        <AsynchronousBadge />
+                                                    )}
+                                                    {selected.requiresSubmission && (
+                                                        <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                                                            Submission
+                                                            required
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {selected.item.description && (
+                                            <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                                <p className="text-xs font-semibold tracking-wide text-slate-400 uppercase">
+                                                    Instructions
+                                                </p>
+                                                <p className="mt-1.5 text-sm leading-relaxed whitespace-pre-line text-slate-700">
+                                                    {selected.item.description}
+                                                </p>
                                             </div>
                                         )}
-                                        <h3 className="mt-1 text-lg font-bold text-slate-900">
-                                            {selected.item.title}
-                                        </h3>
-                                        {selected.item.description && (
-                                            <p className="mt-2 text-sm text-slate-600">
-                                                {selected.item.description}
-                                            </p>
+
+                                        {(selected.item.file_url ||
+                                            selected.item.link) && (
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                {selected.item.file_url && (
+                                                    <a
+                                                        href={
+                                                            selected.item
+                                                                .file_url
+                                                        }
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        onClick={() =>
+                                                            openContentItem(
+                                                                selected.item,
+                                                            )
+                                                        }
+                                                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                                                    >
+                                                        <FileText className="size-3.5 text-red-600" />
+                                                        {selected.item
+                                                            .file_name ??
+                                                            'Download file'}
+                                                    </a>
+                                                )}
+                                                {selected.item.link && (
+                                                    <a
+                                                        href={
+                                                            selected.item.link
+                                                        }
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        onClick={() =>
+                                                            openContentItem(
+                                                                selected.item,
+                                                            )
+                                                        }
+                                                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                                                    >
+                                                        <LinkIcon className="size-3.5 text-red-600" />
+                                                        Open link
+                                                    </a>
+                                                )}
+                                            </div>
                                         )}
-                                        <div className="mt-3 flex flex-wrap gap-4">
-                                            {selected.item.file_url && (
-                                                <a
-                                                    href={
-                                                        selected.item.file_url
-                                                    }
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    onClick={() =>
-                                                        openContentItem(
-                                                            selected.item,
-                                                        )
-                                                    }
-                                                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-red-700 hover:text-red-800"
-                                                >
-                                                    <FileText className="size-3.5" />
-                                                    {selected.item.file_name ??
-                                                        'Download file'}
-                                                </a>
-                                            )}
-                                            {selected.item.link && (
-                                                <a
-                                                    href={selected.item.link}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    onClick={() =>
-                                                        openContentItem(
-                                                            selected.item,
-                                                        )
-                                                    }
-                                                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-red-700 hover:text-red-800"
-                                                >
-                                                    <LinkIcon className="size-3.5" />
-                                                    Open link
-                                                </a>
-                                            )}
-                                        </div>
                                         <ContentItemTiming
                                             item={selected.item}
                                             hasClickableContent={Boolean(
@@ -675,12 +881,25 @@ export default function ShowCourse({
                                                 className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left hover:bg-red-50/40"
                                             >
                                                 <div className="flex items-center gap-3">
-                                                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600">
-                                                        <FileText className="size-4" />
+                                                    <span
+                                                        className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${WORK_TYPE_META[item.work_type].iconWrapClass}`}
+                                                    >
+                                                        {(() => {
+                                                            const TypeIcon =
+                                                                WORK_TYPE_META[
+                                                                    item
+                                                                        .work_type
+                                                                ].icon;
+                                                            return (
+                                                                <TypeIcon className="size-4" />
+                                                            );
+                                                        })()}
                                                     </span>
                                                     <div>
                                                         {(item.week ||
-                                                            item.hyflex_mode) && (
+                                                            item.hyflex_mode ||
+                                                            item.delivery_mode ===
+                                                                'asynchronous') && (
                                                             <div className="mb-1 flex flex-wrap items-center gap-1.5">
                                                                 {item.week && (
                                                                     <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
@@ -695,6 +914,10 @@ export default function ShowCourse({
                                                                         item.hyflex_mode
                                                                     }
                                                                 />
+                                                                {item.delivery_mode ===
+                                                                    'asynchronous' && (
+                                                                    <AsynchronousBadge />
+                                                                )}
                                                             </div>
                                                         )}
                                                         <div className="flex items-center gap-2">

@@ -12,7 +12,7 @@ interface Student {
 
 interface Prediction {
     attendance_rate: number | null;
-    quiz_average: number | null;
+    academic_average: number | null;
     profile_completeness: number;
     composite_score: number;
     label: string;
@@ -32,7 +32,7 @@ interface ShowPerformanceProps {
 
 const FLAG_LABELS: Record<string, string> = {
     low_attendance: 'Low Attendance',
-    low_quiz_performance: 'Low Quiz Performance',
+    low_academic_performance: 'Low Academic Performance',
     incomplete_profile: 'Incomplete Profile',
 };
 
@@ -75,10 +75,10 @@ export default function ShowPerformance({
                         </div>
                         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                             <p className="text-sm font-medium text-slate-500">
-                                Quiz Average
+                                Academic Average
                             </p>
                             <div className="mt-3">
-                                <ScoreBar value={prediction.quiz_average} />
+                                <ScoreBar value={prediction.academic_average} />
                             </div>
                         </div>
                         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -141,7 +141,7 @@ export default function ShowPerformance({
                                                 Attendance
                                             </th>
                                             <th className="px-5 py-3 font-semibold">
-                                                Quiz Avg
+                                                Academic Avg
                                             </th>
                                             <th className="px-5 py-3 font-semibold">
                                                 Score
@@ -164,7 +164,7 @@ export default function ShowPerformance({
                                                 <td className="px-5 py-4">
                                                     <ScoreBar
                                                         value={
-                                                            course.quiz_average
+                                                            course.academic_average
                                                         }
                                                     />
                                                 </td>

@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { appendGmailDomain } from '@/lib/email-format';
-import { formatIdNumber } from '@/lib/id-format';
+import { formatProfessorId } from '@/lib/id-format';
 
 interface Department {
     id: number;
@@ -80,11 +80,11 @@ export default function CreateProfessor({
                                             name="professor_id"
                                             required
                                             autoFocus
-                                            placeholder="0000-00-00000"
-                                            maxLength={13}
+                                            placeholder="0000-000"
+                                            maxLength={8}
                                             onInput={(event) => {
                                                 event.currentTarget.value =
-                                                    formatIdNumber(
+                                                    formatProfessorId(
                                                         event.currentTarget
                                                             .value,
                                                     );
@@ -164,39 +164,6 @@ export default function CreateProfessor({
                                         <InputError
                                             message={errors.department}
                                         />
-                                    </div>
-
-                                    {/* Program */}
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="program">Program</Label>
-
-                                        <select
-                                            id="program"
-                                            name="program"
-                                            required
-                                            defaultValue=""
-                                            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-                                        >
-                                            <option value="" disabled>
-                                                Select a program
-                                            </option>
-
-                                            <option value="Bachelor of Science In Computer Science">
-                                                Bachelor of Science In Computer
-                                                Science
-                                            </option>
-
-                                            <option value="Bachelor of Science In Education">
-                                                Bachelor of Science In Education
-                                            </option>
-
-                                            <option value="Bachelor of Science In Accounting">
-                                                Bachelor of Science In
-                                                Accounting
-                                            </option>
-                                        </select>
-
-                                        <InputError message={errors.program} />
                                     </div>
 
                                     {/* Password */}

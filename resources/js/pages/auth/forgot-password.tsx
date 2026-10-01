@@ -9,6 +9,9 @@ import { Label } from '@/components/ui/label';
 import { login } from '@/routes';
 import { email } from '@/routes/password';
 
+const inputClassName =
+    'border-red-200 bg-white focus-visible:border-red-500 focus-visible:ring-red-200';
+
 export default function ForgotPassword({ status }: { status?: string }) {
     return (
         <>
@@ -33,6 +36,7 @@ export default function ForgotPassword({ status }: { status?: string }) {
                                     autoComplete="off"
                                     autoFocus
                                     placeholder="email@example.com"
+                                    className={inputClassName}
                                 />
 
                                 <InputError message={errors.email} />
@@ -40,7 +44,7 @@ export default function ForgotPassword({ status }: { status?: string }) {
 
                             <div className="my-6 flex items-center justify-start">
                                 <Button
-                                    className="w-full"
+                                    className="w-full bg-red-600 text-white hover:bg-red-700"
                                     disabled={processing}
                                     data-test="email-password-reset-link-button"
                                 >
@@ -54,9 +58,14 @@ export default function ForgotPassword({ status }: { status?: string }) {
                     )}
                 </Form>
 
-                <div className="space-x-1 text-center text-sm text-muted-foreground">
+                <div className="space-x-1 text-center text-sm text-slate-500">
                     <span>Or, return to</span>
-                    <TextLink href={login()}>log in</TextLink>
+                    <TextLink
+                        href={login()}
+                        className="text-red-600 decoration-red-300 hover:text-red-800"
+                    >
+                        log in
+                    </TextLink>
                 </div>
             </div>
         </>

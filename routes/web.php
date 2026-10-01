@@ -2,18 +2,22 @@
 
 use App\Http\Controllers\Admin\AdminAcademicTermController;
 use App\Http\Controllers\Admin\AdminActivityController;
+use App\Http\Controllers\Admin\AdminArchivedController;
 use App\Http\Controllers\Admin\AdminCalendarAnnouncementController;
+use App\Http\Controllers\Admin\AdminClassReportController;
 use App\Http\Controllers\Admin\AdminCourseContentController;
 use App\Http\Controllers\Admin\AdminCoursewareController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminDepartmentController;
 use App\Http\Controllers\Admin\AdminEnrollmentController;
 use App\Http\Controllers\Admin\AdminGradingOversightController;
+use App\Http\Controllers\Admin\AdminLiveClassController;
 use App\Http\Controllers\Admin\AdminPerformanceController;
 use App\Http\Controllers\Admin\AdminProfessorController;
 use App\Http\Controllers\Admin\AdminReportController;
 use App\Http\Controllers\Admin\AdminStudentController;
 use App\Http\Controllers\CalendarController;
+use App\Http\Controllers\MeetingActivityController;
 use App\Http\Controllers\Professor\ProfessorAttendanceController;
 use App\Http\Controllers\Professor\ProfessorCourseContentController;
 use App\Http\Controllers\Professor\ProfessorCoursewareController;
@@ -22,6 +26,7 @@ use App\Http\Controllers\Professor\ProfessorFeedbackController;
 use App\Http\Controllers\Professor\ProfessorGradeController;
 use App\Http\Controllers\Professor\ProfessorMeetingController;
 use App\Http\Controllers\Professor\ProfessorQuizController;
+use App\Http\Controllers\Professor\ProfessorReportController;
 use App\Http\Controllers\Professor\ProfessorRosterController;
 use App\Http\Controllers\Student\StudentAttendanceController;
 use App\Http\Controllers\Student\StudentContentCommentController;
@@ -29,9 +34,11 @@ use App\Http\Controllers\Student\StudentCourseController;
 use App\Http\Controllers\Student\StudentDashboardController;
 use App\Http\Controllers\Student\StudentEnrollmentController;
 use App\Http\Controllers\Student\StudentFeedbackController;
+use App\Http\Controllers\Student\StudentGradeController;
+use App\Http\Controllers\Student\StudentPasswordChangeController;
 use App\Http\Controllers\Student\StudentQuizController;
-use App\Http\Controllers\Student\StudentScoreController;
 use App\Http\Controllers\Student\StudentSubmissionController;
+use App\Http\Controllers\Student\StudentTodoController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -49,10 +56,24 @@ Route::get('/dashboard', function (Request $request) {
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
 
+// Shared by both the professor and student embedded meeting pages — each
+// participant (whichever role) reports their own join/leave/chat/recording
+// activity for the subject's currently-live meeting session.
+Route::middleware(['auth', 'verified'])
+    ->prefix('meetings/{courseware}')
+    ->name('meetings.')
+    ->group(function () {
+        Route::post('/join', [MeetingActivityController::class, 'join'])->name('join');
+        Route::post('/leave', [MeetingActivityController::class, 'leave'])->name('leave');
+        Route::post('/chat', [MeetingActivityController::class, 'chat'])->name('chat');
+        Route::post('/recording-status', [MeetingActivityController::class, 'recordingStatus'])->name('recording-status');
+    });
+
 Route::middleware([
     'auth',
     'verified',
     'role:admin',
+    'archive-ended-terms',
 ])
     ->prefix('admin')
     ->name('admin.')
@@ -238,6 +259,16 @@ Route::middleware([
             [AdminDepartmentController::class, 'update'],
         )->name('departments.update');
 
+        Route::post(
+            '/departments/{department}/curriculum',
+            [AdminDepartmentController::class, 'uploadCurriculum'],
+        )->name('departments.curriculum.upload');
+
+        Route::delete(
+            '/departments/{department}/curriculum',
+            [AdminDepartmentController::class, 'destroyCurriculumFile'],
+        )->name('departments.curriculum.destroy');
+
         Route::get(
             '/activities',
             [AdminActivityController::class, 'index'],
@@ -298,6 +329,46 @@ Route::middleware([
             [CalendarController::class, 'index'],
         )->name('calendar.index');
 
+        Route::get(
+            '/live-classes',
+            [AdminLiveClassController::class, 'index'],
+        )->name('live-classes.index');
+
+        Route::get(
+            '/live-classes/{courseware}',
+            [AdminLiveClassController::class, 'show'],
+        )->name('live-classes.show');
+
+        Route::get(
+            '/archived',
+            [AdminArchivedController::class, 'professors'],
+        )->name('archived.professors');
+
+        Route::get(
+            '/archived/professors/{professor}',
+            [AdminArchivedController::class, 'subjects'],
+        )->name('archived.subjects');
+
+        Route::get(
+            '/archived/subjects/{courseware}',
+            [AdminArchivedController::class, 'show'],
+        )->name('archived.show');
+
+        Route::get(
+            '/class-reports',
+            [AdminClassReportController::class, 'professors'],
+        )->name('class-reports.professors');
+
+        Route::get(
+            '/class-reports/professors/{professor}',
+            [AdminClassReportController::class, 'reports'],
+        )->name('class-reports.reports');
+
+        Route::get(
+            '/class-reports/{report}',
+            [AdminClassReportController::class, 'show'],
+        )->name('class-reports.show');
+
         Route::post(
             '/calendar/announcements',
             [AdminCalendarAnnouncementController::class, 'store'],
@@ -313,6 +384,7 @@ Route::middleware([
     'auth',
     'verified',
     'role:professor',
+    'archive-ended-terms',
 ])
     ->prefix('professor')
     ->name('professor.')
@@ -326,6 +398,16 @@ Route::middleware([
             '/courses',
             [ProfessorCoursewareController::class, 'index'],
         )->name('courses.index');
+
+        Route::get(
+            '/courses/archived',
+            [ProfessorCoursewareController::class, 'archived'],
+        )->name('courses.archived');
+
+        Route::post(
+            '/courses/{courseware}/reuse',
+            [ProfessorCoursewareController::class, 'reuse'],
+        )->name('courses.reuse');
 
         Route::post(
             '/courses',
@@ -416,6 +498,36 @@ Route::middleware([
             '/courses/{courseware}/meeting/end',
             [ProfessorMeetingController::class, 'end'],
         )->name('meeting.end');
+
+        Route::get(
+            '/courses/{courseware}/meeting/records',
+            [ProfessorMeetingController::class, 'records'],
+        )->name('meeting.records');
+
+        Route::post(
+            '/courses/{courseware}/meeting/sessions/{session}/recording-url',
+            [ProfessorMeetingController::class, 'attachRecordingUrl'],
+        )->name('meeting.sessions.recording-url');
+
+        Route::get(
+            '/reports',
+            [ProfessorReportController::class, 'index'],
+        )->name('reports.index');
+
+        Route::get(
+            '/reports/{courseware}/{date}',
+            [ProfessorReportController::class, 'show'],
+        )->name('reports.show');
+
+        Route::post(
+            '/reports/{courseware}',
+            [ProfessorReportController::class, 'store'],
+        )->name('reports.store');
+
+        Route::delete(
+            '/reports/screenshots/{screenshot}',
+            [ProfessorReportController::class, 'destroyScreenshot'],
+        )->name('reports.screenshots.destroy');
 
         Route::get(
             '/grades',
@@ -547,14 +659,51 @@ Route::middleware([
     'auth',
     'verified',
     'role:student',
+    'require-password-change',
 ])
     ->prefix('student')
     ->name('student.')
     ->group(function (): void {
         Route::get(
+            '/password-change',
+            [StudentPasswordChangeController::class, 'edit'],
+        )->name('password-change.edit');
+
+        Route::put(
+            '/password-change',
+            [StudentPasswordChangeController::class, 'requestUpdate'],
+        )
+            ->middleware('throttle:6,1')
+            ->name('password-change.update');
+
+        Route::post(
+            '/password-change/confirm',
+            [StudentPasswordChangeController::class, 'confirmUpdate'],
+        )
+            ->middleware('throttle:10,1')
+            ->name('password-change.confirm');
+
+        Route::post(
+            '/password-change/resend',
+            [StudentPasswordChangeController::class, 'resendCode'],
+        )
+            ->middleware('throttle:3,1')
+            ->name('password-change.resend');
+
+        Route::delete(
+            '/password-change/pending',
+            [StudentPasswordChangeController::class, 'cancelUpdate'],
+        )->name('password-change.cancel');
+
+        Route::get(
             '/dashboard',
             StudentDashboardController::class,
         )->name('dashboard');
+
+        Route::get(
+            '/todo',
+            [StudentTodoController::class, 'index'],
+        )->name('todo.index');
 
         Route::get(
             '/courses',
@@ -617,9 +766,14 @@ Route::middleware([
         )->name('attendance.index');
 
         Route::get(
-            '/scores',
-            [StudentScoreController::class, 'index'],
-        )->name('scores.index');
+            '/grades',
+            [StudentGradeController::class, 'subjects'],
+        )->name('grades.index');
+
+        Route::get(
+            '/courses/{courseware}/grades/{term}',
+            [StudentGradeController::class, 'show'],
+        )->where('term', 'prelims|midterm|finals')->name('grades.show');
 
         Route::get(
             '/calendar',

@@ -67,6 +67,7 @@ export default function AppDockLayout({
             <FloatingIdentityBar
                 homeUrl={PORTAL_HOME[userRole]}
                 subtitle={PORTAL_LABEL[userRole] ?? 'GRC LMS'}
+                navigationItems={navigationItems}
             />
 
             <main className="mx-auto w-full max-w-[1600px] px-4 pt-15 pb-32 md:px-8">

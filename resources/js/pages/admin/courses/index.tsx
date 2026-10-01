@@ -23,8 +23,13 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { dropQueryParam } from '@/lib/back-navigation';
+import type { CurriculumSubject } from '@/lib/curriculum-options';
+import { getCurriculumSubjectOptions } from '@/lib/curriculum-options';
 import { generateRandomCode } from '@/lib/random-code';
 import { getSectionOptions } from '@/lib/section-options';
+
+const MANUAL_SUBJECT = '__manual__';
 
 function rollSubjectCode(inputId: string) {
     const input = document.getElementById(inputId) as HTMLInputElement | null;
@@ -38,7 +43,6 @@ function rollSubjectCode(inputId: string) {
 interface Course {
     id: number;
     subject: string;
-    course_code: string | null;
     subject_code: string | null;
     professor: string;
     professor_id: number | null;
@@ -49,9 +53,13 @@ interface Course {
     today_hyflex_mode: 'f2f' | 'online' | null;
     department_id: number | null;
     academic_term_id: number | null;
+    schedule_mode: 'single' | 'dual';
     class_day: string | null;
     class_start_time: string | null;
     class_end_time: string | null;
+    class_day_2: string | null;
+    class_start_time_2: string | null;
+    class_end_time_2: string | null;
     enrollments_count: number;
     department?: {
         name: string;
@@ -80,6 +88,7 @@ interface Department {
 interface AcademicTerm {
     id: number;
     name: string;
+    semester: string | null;
     start_date: string;
     end_date: string;
 }
@@ -102,6 +111,7 @@ interface CoursesIndexProps {
     departments: Department[];
     academic_terms: AcademicTerm[];
     professors: Professor[];
+    curriculum_subjects: CurriculumSubject[];
 }
 
 export default function CoursesIndex({
@@ -112,6 +122,7 @@ export default function CoursesIndex({
     departments,
     academic_terms,
     professors,
+    curriculum_subjects,
 }: CoursesIndexProps) {
     const [search, setSearch] = useState(filters.search ?? '');
     const [yearLevel, setYearLevel] = useState(filters.year_level ?? '');
@@ -121,8 +132,23 @@ export default function CoursesIndex({
     const [showCreateModal, setShowCreateModal] = useState(
         () => new URLSearchParams(window.location.search).get('create') === '1',
     );
+
+    // Dismissing the modal has to drop `?create=1` too — otherwise coming
+    // back to this exact URL later (browser Back/Forward, or a refresh)
+    // reopens it even though the user already closed it once.
+    const closeCreateModal = () => {
+        setShowCreateModal(false);
+        dropQueryParam('create');
+    };
+
     const [formYearLevel, setFormYearLevel] = useState('');
     const [formDepartmentId, setFormDepartmentId] = useState('');
+    const [formAcademicTermId, setFormAcademicTermId] = useState('');
+    const [formSubject, setFormSubject] = useState('');
+    const [formSubjectManual, setFormSubjectManual] = useState('');
+    const [formScheduleMode, setFormScheduleMode] = useState<'single' | 'dual'>(
+        'single',
+    );
     const sectionOptions = getSectionOptions(formYearLevel);
     const availableProfessors = formDepartmentId
         ? professors.filter(
@@ -130,10 +156,36 @@ export default function CoursesIndex({
                   professor.department_id === Number(formDepartmentId),
           )
         : professors;
+    const createSubjectOptions = getCurriculumSubjectOptions(
+        curriculum_subjects,
+        formDepartmentId,
+        formYearLevel,
+        formAcademicTermId,
+        academic_terms,
+    );
+    const createSubjectFiltersReady =
+        formYearLevel !== '' &&
+        formAcademicTermId !== '' &&
+        formDepartmentId !== '';
+
+    const resetCreateForm = () => {
+        setFormYearLevel('');
+        setFormDepartmentId('');
+        setFormAcademicTermId('');
+        setFormSubject('');
+        setFormSubjectManual('');
+        setFormScheduleMode('single');
+    };
 
     const [editingCourse, setEditingCourse] = useState<Course | null>(null);
     const [editYearLevel, setEditYearLevel] = useState('');
     const [editDepartmentId, setEditDepartmentId] = useState('');
+    const [editAcademicTermId, setEditAcademicTermId] = useState('');
+    const [editSubject, setEditSubject] = useState('');
+    const [editSubjectManual, setEditSubjectManual] = useState('');
+    const [editScheduleMode, setEditScheduleMode] = useState<'single' | 'dual'>(
+        'single',
+    );
     const editSectionOptions = getSectionOptions(editYearLevel);
     const editAvailableProfessors = editDepartmentId
         ? professors.filter(
@@ -142,13 +194,48 @@ export default function CoursesIndex({
                   professor.id === editingCourse?.professor_id,
           )
         : professors;
+    const editSubjectOptions = getCurriculumSubjectOptions(
+        curriculum_subjects,
+        editDepartmentId,
+        editYearLevel,
+        editAcademicTermId,
+        academic_terms,
+    );
+    const editSubjectFiltersReady =
+        editYearLevel !== '' &&
+        editAcademicTermId !== '' &&
+        editDepartmentId !== '';
 
     const openEditModal = (course: Course) => {
         setEditingCourse(course);
         setEditYearLevel(course.year_level ?? '');
+        setEditScheduleMode(course.schedule_mode);
         setEditDepartmentId(
             course.department_id !== null ? String(course.department_id) : '',
         );
+        setEditAcademicTermId(
+            course.academic_term_id !== null
+                ? String(course.academic_term_id)
+                : '',
+        );
+
+        const initialOptions = getCurriculumSubjectOptions(
+            curriculum_subjects,
+            course.department_id !== null ? String(course.department_id) : '',
+            course.year_level ?? '',
+            course.academic_term_id !== null
+                ? String(course.academic_term_id)
+                : '',
+            academic_terms,
+        );
+
+        if (initialOptions.some((option) => option.title === course.subject)) {
+            setEditSubject(course.subject);
+            setEditSubjectManual('');
+        } else {
+            setEditSubject(MANUAL_SUBJECT);
+            setEditSubjectManual(course.subject);
+        }
     };
 
     const applyFilters = (
@@ -361,11 +448,6 @@ export default function CoursesIndex({
                                                             {course.subject}
                                                         </div>
                                                         <div className="mt-1 text-xs text-slate-500">
-                                                            ID:{' '}
-                                                            {course.course_code ??
-                                                                'None'}
-                                                        </div>
-                                                        <div className="mt-1 text-xs text-slate-500">
                                                             Code:{' '}
                                                             {course.subject_code ??
                                                                 'None'}
@@ -388,7 +470,7 @@ export default function CoursesIndex({
                                                                 {course.today_hyflex_mode ===
                                                                 'f2f'
                                                                     ? 'Face-to-Face'
-                                                                    : 'Online'}
+                                                                    : 'Synchronous'}
                                                             </span>
                                                         )}
                                                     </td>
@@ -521,7 +603,16 @@ export default function CoursesIndex({
                 </div>
             </div>
 
-            <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
+            <Dialog
+                open={showCreateModal}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        closeCreateModal();
+                    } else {
+                        setShowCreateModal(true);
+                    }
+                }}
+            >
                 <DialogContent className="max-h-[90vh] max-w-2xl gap-4 overflow-y-auto p-0">
                     <div className="border-b border-slate-200 p-6 pb-4">
                         <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
@@ -539,40 +630,13 @@ export default function CoursesIndex({
                         disableWhileProcessing
                         resetOnSuccess
                         onSuccess={() => {
-                            setShowCreateModal(false);
-                            setFormYearLevel('');
-                            setFormDepartmentId('');
+                            closeCreateModal();
+                            resetCreateForm();
                         }}
                         className="px-6 pb-6"
                     >
                         {({ processing, errors }) => (
                             <div className="grid gap-6">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="subject">
-                                        Subject Title
-                                    </Label>
-                                    <Input
-                                        id="subject"
-                                        name="subject"
-                                        required
-                                        autoFocus
-                                        placeholder="Enter subject title"
-                                    />
-                                    <InputError message={errors.subject} />
-                                </div>
-
-                                <div className="grid gap-2">
-                                    <Label htmlFor="course_code">
-                                        Subject ID
-                                    </Label>
-                                    <Input
-                                        id="course_code"
-                                        name="course_code"
-                                        placeholder="Optional subject ID"
-                                    />
-                                    <InputError message={errors.course_code} />
-                                </div>
-
                                 <div className="grid gap-2">
                                     <Label htmlFor="subject_code">
                                         Subject Code
@@ -607,11 +671,12 @@ export default function CoursesIndex({
                                         id="department_id"
                                         name="department_id"
                                         value={formDepartmentId}
-                                        onChange={(event) =>
+                                        onChange={(event) => {
                                             setFormDepartmentId(
                                                 event.target.value,
-                                            )
-                                        }
+                                            );
+                                            setFormSubject('');
+                                        }}
                                         className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
                                     >
                                         <option value="">
@@ -667,7 +732,39 @@ export default function CoursesIndex({
                                 </div>
 
                                 <div className="grid gap-2">
-                                    <Label>Class Schedule</Label>
+                                    <Label htmlFor="schedule_mode">
+                                        Class Schedule
+                                    </Label>
+                                    <select
+                                        id="schedule_mode"
+                                        name="schedule_mode"
+                                        value={formScheduleMode}
+                                        onChange={(event) =>
+                                            setFormScheduleMode(
+                                                event.target.value as
+                                                    'single' | 'dual',
+                                            )
+                                        }
+                                        className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                                    >
+                                        <option value="single">
+                                            One Class Schedule
+                                        </option>
+                                        <option value="dual">
+                                            Two Class Schedules
+                                        </option>
+                                    </select>
+                                    <InputError
+                                        message={errors.schedule_mode}
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label>
+                                        {formScheduleMode === 'dual'
+                                            ? 'Face-to-Face and Synchronous Class'
+                                            : 'Class Schedule'}
+                                    </Label>
 
                                     <div className="grid grid-cols-3 gap-4 rounded-md border border-input p-4">
                                         <div className="grid gap-2">
@@ -731,6 +828,70 @@ export default function CoursesIndex({
                                     />
                                 </div>
 
+                                {formScheduleMode === 'dual' && (
+                                    <div className="grid gap-2">
+                                        <Label>Asynchronous Class</Label>
+
+                                        <div className="grid grid-cols-3 gap-4 rounded-md border border-input p-4">
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="class_day_2">
+                                                    Day
+                                                </Label>
+                                                <select
+                                                    id="class_day_2"
+                                                    name="class_day_2"
+                                                    defaultValue=""
+                                                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                                                >
+                                                    <option value="">
+                                                        Select day
+                                                    </option>
+                                                    {class_days.map((day) => (
+                                                        <option
+                                                            key={day}
+                                                            value={day}
+                                                        >
+                                                            {day}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="class_start_time_2">
+                                                    Start Time
+                                                </Label>
+                                                <Input
+                                                    id="class_start_time_2"
+                                                    name="class_start_time_2"
+                                                    type="time"
+                                                />
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="class_end_time_2">
+                                                    End Time
+                                                </Label>
+                                                <Input
+                                                    id="class_end_time_2"
+                                                    name="class_end_time_2"
+                                                    type="time"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <InputError
+                                            message={errors.class_day_2}
+                                        />
+                                        <InputError
+                                            message={errors.class_start_time_2}
+                                        />
+                                        <InputError
+                                            message={errors.class_end_time_2}
+                                        />
+                                    </div>
+                                )}
+
                                 <div className="grid gap-6 sm:grid-cols-2">
                                     <div className="grid gap-2">
                                         <Label htmlFor="year_level">
@@ -740,11 +901,12 @@ export default function CoursesIndex({
                                             id="year_level"
                                             name="year_level"
                                             value={formYearLevel}
-                                            onChange={(event) =>
+                                            onChange={(event) => {
                                                 setFormYearLevel(
                                                     event.target.value,
-                                                )
-                                            }
+                                                );
+                                                setFormSubject('');
+                                            }}
                                             className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
                                         >
                                             <option value="">
@@ -801,9 +963,19 @@ export default function CoursesIndex({
                                     <select
                                         id="academic_term_id"
                                         name="academic_term_id"
+                                        value={formAcademicTermId}
+                                        onChange={(event) => {
+                                            setFormAcademicTermId(
+                                                event.target.value,
+                                            );
+                                            setFormSubject('');
+                                        }}
+                                        required
                                         className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
                                     >
-                                        <option value="">Select term</option>
+                                        <option value="" disabled>
+                                            Select term
+                                        </option>
                                         {academic_terms.map((term) => (
                                             <option
                                                 key={term.id}
@@ -819,16 +991,120 @@ export default function CoursesIndex({
                                 </div>
 
                                 <div className="grid gap-2">
+                                    <Label htmlFor="subject">
+                                        Subject Title
+                                    </Label>
+                                    <select
+                                        id="subject"
+                                        name={
+                                            formSubject === MANUAL_SUBJECT
+                                                ? undefined
+                                                : 'subject'
+                                        }
+                                        disabled={!createSubjectFiltersReady}
+                                        value={formSubject}
+                                        onChange={(event) =>
+                                            setFormSubject(event.target.value)
+                                        }
+                                        required
+                                        className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        <option value="" disabled>
+                                            {createSubjectFiltersReady
+                                                ? 'Select subject title'
+                                                : 'Select year level, academic term, and department first'}
+                                        </option>
+                                        {createSubjectOptions
+                                            .filter(
+                                                (option) =>
+                                                    option.category ===
+                                                    'regular',
+                                            )
+                                            .map((option) => (
+                                                <option
+                                                    key={option.id}
+                                                    value={option.title}
+                                                >
+                                                    {option.code} —{' '}
+                                                    {option.title}
+                                                </option>
+                                            ))}
+                                        {createSubjectOptions.some(
+                                            (option) =>
+                                                option.category === 'bridging',
+                                        ) && (
+                                            <optgroup label="Bridging Course">
+                                                {createSubjectOptions
+                                                    .filter(
+                                                        (option) =>
+                                                            option.category ===
+                                                            'bridging',
+                                                    )
+                                                    .map((option) => (
+                                                        <option
+                                                            key={option.id}
+                                                            value={option.title}
+                                                        >
+                                                            {option.code} —{' '}
+                                                            {option.title}
+                                                        </option>
+                                                    ))}
+                                            </optgroup>
+                                        )}
+                                        {createSubjectOptions.some(
+                                            (option) =>
+                                                option.category === 'elective',
+                                        ) && (
+                                            <optgroup label="Professional Electives">
+                                                {createSubjectOptions
+                                                    .filter(
+                                                        (option) =>
+                                                            option.category ===
+                                                            'elective',
+                                                    )
+                                                    .map((option) => (
+                                                        <option
+                                                            key={option.id}
+                                                            value={option.title}
+                                                        >
+                                                            {option.code} —{' '}
+                                                            {option.title}
+                                                        </option>
+                                                    ))}
+                                            </optgroup>
+                                        )}
+                                        <option value={MANUAL_SUBJECT}>
+                                            Other (type manually)
+                                        </option>
+                                    </select>
+                                    {formSubject === MANUAL_SUBJECT && (
+                                        <Input
+                                            name="subject"
+                                            value={formSubjectManual}
+                                            onChange={(event) =>
+                                                setFormSubjectManual(
+                                                    event.target.value,
+                                                )
+                                            }
+                                            required
+                                            autoFocus
+                                            placeholder="Enter subject title"
+                                            className="mt-1.5"
+                                        />
+                                    )}
+                                    <InputError message={errors.subject} />
+                                </div>
+
+                                <div className="grid gap-2">
                                     <Label htmlFor="hyflex_group">
                                         HyFlex Group
                                     </Label>
                                     <select
                                         id="hyflex_group"
                                         name="hyflex_group"
-                                        defaultValue=""
+                                        defaultValue="A"
                                         className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
                                     >
-                                        <option value="">None</option>
                                         <option value="A">HyFlex A</option>
                                         <option value="B">HyFlex B</option>
                                     </select>
@@ -843,9 +1119,7 @@ export default function CoursesIndex({
                                 <div className="flex justify-end gap-3 border-t border-slate-200 pt-5">
                                     <button
                                         type="button"
-                                        onClick={() =>
-                                            setShowCreateModal(false)
-                                        }
+                                        onClick={closeCreateModal}
                                         className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                                     >
                                         Cancel
@@ -898,36 +1172,6 @@ export default function CoursesIndex({
                             {({ processing, errors }) => (
                                 <div className="grid gap-6">
                                     <div className="grid gap-2">
-                                        <Label htmlFor="edit_subject">
-                                            Subject Title
-                                        </Label>
-                                        <Input
-                                            id="edit_subject"
-                                            name="subject"
-                                            defaultValue={editingCourse.subject}
-                                            required
-                                            autoFocus
-                                        />
-                                        <InputError message={errors.subject} />
-                                    </div>
-
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="edit_course_code">
-                                            Subject ID
-                                        </Label>
-                                        <Input
-                                            id="edit_course_code"
-                                            name="course_code"
-                                            defaultValue={
-                                                editingCourse.course_code ?? ''
-                                            }
-                                        />
-                                        <InputError
-                                            message={errors.course_code}
-                                        />
-                                    </div>
-
-                                    <div className="grid gap-2">
                                         <Label htmlFor="edit_subject_code">
                                             Subject Code
                                         </Label>
@@ -969,11 +1213,12 @@ export default function CoursesIndex({
                                             id="edit_department_id"
                                             name="department_id"
                                             value={editDepartmentId}
-                                            onChange={(event) =>
+                                            onChange={(event) => {
                                                 setEditDepartmentId(
                                                     event.target.value,
-                                                )
-                                            }
+                                                );
+                                                setEditSubject('');
+                                            }}
                                             className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
                                         >
                                             <option value="">
@@ -1035,7 +1280,39 @@ export default function CoursesIndex({
                                     </div>
 
                                     <div className="grid gap-2">
-                                        <Label>Class Schedule</Label>
+                                        <Label htmlFor="edit_schedule_mode">
+                                            Class Schedule
+                                        </Label>
+                                        <select
+                                            id="edit_schedule_mode"
+                                            name="schedule_mode"
+                                            value={editScheduleMode}
+                                            onChange={(event) =>
+                                                setEditScheduleMode(
+                                                    event.target.value as
+                                                        'single' | 'dual',
+                                                )
+                                            }
+                                            className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                                        >
+                                            <option value="single">
+                                                One Class Schedule
+                                            </option>
+                                            <option value="dual">
+                                                Two Class Schedules
+                                            </option>
+                                        </select>
+                                        <InputError
+                                            message={errors.schedule_mode}
+                                        />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label>
+                                            {editScheduleMode === 'dual'
+                                                ? 'Face-to-Face and Synchronous Class'
+                                                : 'Class Schedule'}
+                                        </Label>
 
                                         <div className="grid grid-cols-3 gap-4 rounded-md border border-input p-4">
                                             <div className="grid gap-2">
@@ -1112,6 +1389,87 @@ export default function CoursesIndex({
                                         />
                                     </div>
 
+                                    {editScheduleMode === 'dual' && (
+                                        <div className="grid gap-2">
+                                            <Label>Asynchronous Class</Label>
+
+                                            <div className="grid grid-cols-3 gap-4 rounded-md border border-input p-4">
+                                                <div className="grid gap-2">
+                                                    <Label htmlFor="edit_class_day_2">
+                                                        Day
+                                                    </Label>
+                                                    <select
+                                                        id="edit_class_day_2"
+                                                        name="class_day_2"
+                                                        defaultValue={
+                                                            editingCourse.class_day_2 ??
+                                                            ''
+                                                        }
+                                                        className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                                                    >
+                                                        <option value="">
+                                                            Select day
+                                                        </option>
+                                                        {class_days.map(
+                                                            (day) => (
+                                                                <option
+                                                                    key={day}
+                                                                    value={day}
+                                                                >
+                                                                    {day}
+                                                                </option>
+                                                            ),
+                                                        )}
+                                                    </select>
+                                                </div>
+
+                                                <div className="grid gap-2">
+                                                    <Label htmlFor="edit_class_start_time_2">
+                                                        Start Time
+                                                    </Label>
+                                                    <Input
+                                                        id="edit_class_start_time_2"
+                                                        name="class_start_time_2"
+                                                        type="time"
+                                                        defaultValue={
+                                                            editingCourse.class_start_time_2 ??
+                                                            ''
+                                                        }
+                                                    />
+                                                </div>
+
+                                                <div className="grid gap-2">
+                                                    <Label htmlFor="edit_class_end_time_2">
+                                                        End Time
+                                                    </Label>
+                                                    <Input
+                                                        id="edit_class_end_time_2"
+                                                        name="class_end_time_2"
+                                                        type="time"
+                                                        defaultValue={
+                                                            editingCourse.class_end_time_2 ??
+                                                            ''
+                                                        }
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <InputError
+                                                message={errors.class_day_2}
+                                            />
+                                            <InputError
+                                                message={
+                                                    errors.class_start_time_2
+                                                }
+                                            />
+                                            <InputError
+                                                message={
+                                                    errors.class_end_time_2
+                                                }
+                                            />
+                                        </div>
+                                    )}
+
                                     <div className="grid gap-6 sm:grid-cols-2">
                                         <div className="grid gap-2">
                                             <Label htmlFor="edit_year_level">
@@ -1121,11 +1479,12 @@ export default function CoursesIndex({
                                                 id="edit_year_level"
                                                 name="year_level"
                                                 value={editYearLevel}
-                                                onChange={(event) =>
+                                                onChange={(event) => {
                                                     setEditYearLevel(
                                                         event.target.value,
-                                                    )
-                                                }
+                                                    );
+                                                    setEditSubject('');
+                                                }}
                                                 className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
                                             >
                                                 <option value="">
@@ -1197,13 +1556,17 @@ export default function CoursesIndex({
                                         <select
                                             id="edit_academic_term_id"
                                             name="academic_term_id"
-                                            defaultValue={
-                                                editingCourse.academic_term_id ??
-                                                ''
-                                            }
+                                            value={editAcademicTermId}
+                                            onChange={(event) => {
+                                                setEditAcademicTermId(
+                                                    event.target.value,
+                                                );
+                                                setEditSubject('');
+                                            }}
+                                            required
                                             className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
                                         >
-                                            <option value="">
+                                            <option value="" disabled>
                                                 Select term
                                             </option>
                                             {academic_terms.map((term) => (
@@ -1218,6 +1581,119 @@ export default function CoursesIndex({
                                         <InputError
                                             message={errors.academic_term_id}
                                         />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="edit_subject">
+                                            Subject Title
+                                        </Label>
+                                        <select
+                                            id="edit_subject"
+                                            name={
+                                                editSubject === MANUAL_SUBJECT
+                                                    ? undefined
+                                                    : 'subject'
+                                            }
+                                            disabled={!editSubjectFiltersReady}
+                                            value={editSubject}
+                                            onChange={(event) =>
+                                                setEditSubject(
+                                                    event.target.value,
+                                                )
+                                            }
+                                            required
+                                            className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            <option value="" disabled>
+                                                {editSubjectFiltersReady
+                                                    ? 'Select subject title'
+                                                    : 'Select year level, academic term, and department first'}
+                                            </option>
+                                            {editSubjectOptions
+                                                .filter(
+                                                    (option) =>
+                                                        option.category ===
+                                                        'regular',
+                                                )
+                                                .map((option) => (
+                                                    <option
+                                                        key={option.id}
+                                                        value={option.title}
+                                                    >
+                                                        {option.code} —{' '}
+                                                        {option.title}
+                                                    </option>
+                                                ))}
+                                            {editSubjectOptions.some(
+                                                (option) =>
+                                                    option.category ===
+                                                    'bridging',
+                                            ) && (
+                                                <optgroup label="Bridging Course">
+                                                    {editSubjectOptions
+                                                        .filter(
+                                                            (option) =>
+                                                                option.category ===
+                                                                'bridging',
+                                                        )
+                                                        .map((option) => (
+                                                            <option
+                                                                key={option.id}
+                                                                value={
+                                                                    option.title
+                                                                }
+                                                            >
+                                                                {option.code} —{' '}
+                                                                {option.title}
+                                                            </option>
+                                                        ))}
+                                                </optgroup>
+                                            )}
+                                            {editSubjectOptions.some(
+                                                (option) =>
+                                                    option.category ===
+                                                    'elective',
+                                            ) && (
+                                                <optgroup label="Professional Electives">
+                                                    {editSubjectOptions
+                                                        .filter(
+                                                            (option) =>
+                                                                option.category ===
+                                                                'elective',
+                                                        )
+                                                        .map((option) => (
+                                                            <option
+                                                                key={option.id}
+                                                                value={
+                                                                    option.title
+                                                                }
+                                                            >
+                                                                {option.code} —{' '}
+                                                                {option.title}
+                                                            </option>
+                                                        ))}
+                                                </optgroup>
+                                            )}
+                                            <option value={MANUAL_SUBJECT}>
+                                                Other (type manually)
+                                            </option>
+                                        </select>
+                                        {editSubject === MANUAL_SUBJECT && (
+                                            <Input
+                                                name="subject"
+                                                value={editSubjectManual}
+                                                onChange={(event) =>
+                                                    setEditSubjectManual(
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                required
+                                                autoFocus
+                                                placeholder="Enter subject title"
+                                                className="mt-1.5"
+                                            />
+                                        )}
+                                        <InputError message={errors.subject} />
                                     </div>
 
                                     <div className="grid gap-2">

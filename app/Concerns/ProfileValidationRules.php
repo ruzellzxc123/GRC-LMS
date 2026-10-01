@@ -17,14 +17,15 @@ trait ProfileValidationRules
         return [
             'name' => $this->nameRules(),
 
-            // Student IDs are permanent once the account is created — only
-            // validated here on registration ($userId === null). Profile
-            // updates never accept this field, so it can't be changed.
+            // Student IDs are permanent once the account is created, and
+            // email changes go through their own verified flow
+            // (EmailChangeController) — both are only validated here on
+            // registration ($userId === null). A profile update never
+            // accepts either field.
             ...($userId === null ? [
                 'student_id' => $this->studentIdRules(),
+                'email' => $this->emailRules($userId),
             ] : []),
-
-            'email' => $this->emailRules($userId),
 
             'birthday' => [
                 'required',
@@ -61,19 +62,14 @@ trait ProfileValidationRules
                     }
                 },
             ],
-
-            'program' => [
-                'required',
-                'string',
-                'max:150',
-            ],
         ];
     }
 
     /**
-     * The student ID prefix must match the year the account is created in
-     * (i.e. the enrollment year) — enforced server-side since the client
-     * only shows this as a locked, non-editable label.
+     * The year-month prefix is fixed to whenever the account is actually
+     * created — enforced here since the client only shows it as a locked
+     * label and submits it concatenated with the 5-digit number typed
+     * after it (see the student ID field in register.tsx).
      *
      * @return array<int, mixed>
      */
@@ -84,10 +80,10 @@ trait ProfileValidationRules
             'string',
             'regex:/^\d{4}-\d{2}-\d{5}$/',
             function (string $attribute, mixed $value, \Closure $fail): void {
-                $currentYear = (string) now()->year;
+                $prefix = User::currentStudentIdPrefix();
 
-                if (! str_starts_with($value, $currentYear)) {
-                    $fail("The student id must start with the current enrollment year ({$currentYear}).");
+                if (! str_starts_with($value, $prefix)) {
+                    $fail("The student id must start with {$prefix}.");
                 }
             },
             Rule::unique(User::class, 'student_id'),

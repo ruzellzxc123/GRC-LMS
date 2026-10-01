@@ -12,6 +12,7 @@ import {
     MessageSquare,
     Sparkles,
 } from 'lucide-react';
+import BibleVerseCard from '@/components/bible-verse-card';
 import DashboardAvatar from '@/components/dashboard-avatar';
 import SuccessGauge from '@/components/success-gauge';
 import type { Auth } from '@/types';
@@ -28,7 +29,7 @@ interface Prediction {
     label: string;
     risk_level: 'low' | 'medium' | 'high';
     attendance_rate: number | null;
-    quiz_average: number;
+    academic_average: number | null;
     flags: string[];
 }
 
@@ -67,7 +68,8 @@ interface PageProps {
 
 const FLAG_MESSAGES: Record<string, string> = {
     low_attendance: 'Your attendance rate is below the healthy threshold.',
-    low_quiz_performance: 'Recent quiz scores are trending lower than usual.',
+    low_academic_performance:
+        'Your grades across quizzes, assignments, activities, recitation, and exams are trending below a passing level.',
     incomplete_profile:
         'Your profile is missing information professors may need.',
 };
@@ -268,7 +270,7 @@ export default function StudentDashboard({
         },
         {
             title: 'Study Time This Week',
-            value: `${Math.floor(stats.study_minutes_this_week / 60)}h ${stats.study_minutes_this_week % 60}m`,
+            value: `${Math.floor(stats.study_minutes_this_week / 60)}h ${(stats.study_minutes_this_week % 60).toFixed(2)}m`,
             icon: Clock,
         },
         {
@@ -331,6 +333,8 @@ export default function StudentDashboard({
                             </div>
                         </div>
                     </section>
+
+                    <BibleVerseCard />
 
                     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                         {statCards.map((card) => {
@@ -416,10 +420,12 @@ export default function StudentDashboard({
                                             </div>
                                             <div>
                                                 <p className="text-xs text-slate-500">
-                                                    Quiz average
+                                                    Academic average
                                                 </p>
                                                 <p className="font-semibold text-slate-900">
-                                                    {prediction.quiz_average}%
+                                                    {formatPercent(
+                                                        prediction.academic_average,
+                                                    )}
                                                 </p>
                                             </div>
                                         </div>
@@ -568,11 +574,11 @@ export default function StudentDashboard({
                                         Attendance
                                     </Link>
                                     <Link
-                                        href="/student/scores"
+                                        href="/student/grades"
                                         className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-sm font-medium text-slate-700 hover:border-red-200 hover:bg-red-50/40"
                                     >
                                         <Award className="size-4 text-red-700" />
-                                        My Scores
+                                        My Grades
                                     </Link>
                                     <Link
                                         href="/student/feedback"

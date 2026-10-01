@@ -13,6 +13,7 @@ import {
     Users,
     Video,
 } from 'lucide-react';
+import BibleVerseCard from '@/components/bible-verse-card';
 import DashboardAvatar from '@/components/dashboard-avatar';
 import ScoreBar from '@/components/score-bar';
 import SuccessGauge from '@/components/success-gauge';
@@ -197,6 +198,8 @@ export default function ProfessorDashboard({
                             </div>
                         </div>
                     </section>
+
+                    <BibleVerseCard />
 
                     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                         {statCards.map((card) => {
@@ -410,7 +413,7 @@ export default function ProfessorDashboard({
                                                         {course.today_hyflex_mode ===
                                                         'f2f'
                                                             ? 'Face-to-Face'
-                                                            : 'Online'}
+                                                            : 'Synchronous'}
                                                     </span>
                                                 )}
                                             </div>

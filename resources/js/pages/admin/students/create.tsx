@@ -7,9 +7,13 @@ interface CreateStudentProps {
     passwordRules?: string;
     adminMode?: boolean;
     accountType?: 'student' | 'professor';
+    studentIdPrefix: string;
 }
 
-export default function CreateStudent({ passwordRules }: CreateStudentProps) {
+export default function CreateStudent({
+    passwordRules,
+    studentIdPrefix,
+}: CreateStudentProps) {
     return (
         <>
             <Head title="Add Student" />
@@ -45,6 +49,7 @@ export default function CreateStudent({ passwordRules }: CreateStudentProps) {
                         <div className="p-6">
                             <Register
                                 passwordRules={passwordRules}
+                                studentIdPrefix={studentIdPrefix}
                                 adminMode
                                 accountType="student"
                             />

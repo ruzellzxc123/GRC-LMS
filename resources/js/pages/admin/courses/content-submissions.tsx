@@ -13,7 +13,6 @@ import BackLink from '@/components/back-link';
 interface Courseware {
     id: number;
     subject: string;
-    course_code: string | null;
 }
 
 interface ContentItemInfo {
@@ -245,9 +244,6 @@ export default function ContentSubmissions({
                         <div className="flex items-center gap-2 text-sm text-red-100">
                             <ClipboardCheck className="size-4" />
                             {courseware.subject}
-                            {courseware.course_code
-                                ? ` (${courseware.course_code})`
-                                : ''}
                         </div>
                         <h1 className="mt-2 text-2xl font-bold">
                             Submissions — {item.title}

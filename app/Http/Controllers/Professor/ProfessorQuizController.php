@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Professor;
 
+use App\Events\CourseContentUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\CourseContentItem;
 use App\Models\Courseware;
@@ -95,6 +96,8 @@ class ProfessorQuizController extends Controller
 
         $lockedItem->update(['quiz_id' => $quiz->id]);
 
+        CourseContentUpdated::dispatchSafely($validated['courseware_id']);
+
         return Redirect::route('professor.content.index', $validated['courseware_id'])
             ->with('success', "Quiz \"{$quiz->title}\" was created, published, and attached to the module.");
     }
@@ -140,7 +143,11 @@ class ProfessorQuizController extends Controller
             'questions_to_answer' => ['nullable', 'integer', 'min:1'],
         ]);
 
-        $parsed = $parser->parse($request->file('file')->get());
+        $contents = $request->file('file')->get();
+
+        abort_if($contents === false, 422, 'The uploaded file could not be read — please try again.');
+
+        $parsed = $parser->parse($contents);
 
         if (! empty($parsed['errors'])) {
             return back()->withErrors(['file' => implode("\n", $parsed['errors'])])->withInput();
@@ -174,6 +181,8 @@ class ProfessorQuizController extends Controller
         });
 
         $lockedItem->update(['quiz_id' => $quiz->id]);
+
+        CourseContentUpdated::dispatchSafely($validated['courseware_id']);
 
         return Redirect::route('professor.content.index', $validated['courseware_id'])
             ->with('success', "Quiz \"{$quiz->title}\" was imported, published, and attached to the module.");
@@ -256,6 +265,8 @@ class ProfessorQuizController extends Controller
 
             $quiz->update($validated);
 
+            CourseContentUpdated::dispatchSafely($validated['courseware_id']);
+
             return Redirect::route('professor.quizzes.index')
                 ->with('success', "Quiz \"{$quiz->title}\" was updated successfully.");
         }
@@ -279,6 +290,8 @@ class ProfessorQuizController extends Controller
             $this->saveQuestions($quiz, $validated['questions']);
         });
 
+        CourseContentUpdated::dispatchSafely($validated['courseware_id']);
+
         return Redirect::route('professor.quizzes.index')
             ->with('success', "Quiz \"{$quiz->title}\" was updated successfully.");
     }
@@ -292,6 +305,8 @@ class ProfessorQuizController extends Controller
 
         $status = $quiz->is_published ? 'published' : 'unpublished';
 
+        CourseContentUpdated::dispatchSafely($quiz->courseware_id);
+
         return back()->with('success', "Quiz \"{$quiz->title}\" was {$status}.");
     }
 
@@ -299,7 +314,11 @@ class ProfessorQuizController extends Controller
     {
         abort_unless($quiz->courseware->professor_id === auth()->id(), 403);
 
+        $coursewareId = $quiz->courseware_id;
+
         $quiz->delete();
+
+        CourseContentUpdated::dispatchSafely($coursewareId);
 
         return back()->with('success', "Quiz \"{$quiz->title}\" was deleted.");
     }

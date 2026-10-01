@@ -23,6 +23,7 @@ interface Meeting {
     schedule_state: ScheduleState;
     class_start_time: string | null;
     class_end_time: string | null;
+    session_id: number | null;
 }
 
 interface StudentMeetingProps {
@@ -166,11 +167,39 @@ export default function StudentMeeting({
                                     displayName={auth.user.name}
                                     email={auth.user.email}
                                     isModerator={false}
-                                    onLeave={() =>
-                                        router.visit(
-                                            `/student/courses/${courseware.id}`,
+                                    onJoined={() =>
+                                        router.post(
+                                            `/meetings/${courseware.id}/join`,
+                                            {},
+                                            {
+                                                preserveScroll: true,
+                                                preserveState: true,
+                                            },
                                         )
                                     }
+                                    onChatMessage={(body) =>
+                                        router.post(
+                                            `/meetings/${courseware.id}/chat`,
+                                            { body },
+                                            {
+                                                preserveScroll: true,
+                                                preserveState: true,
+                                            },
+                                        )
+                                    }
+                                    onLeave={() => {
+                                        router.post(
+                                            `/meetings/${courseware.id}/leave`,
+                                            {},
+                                            {
+                                                preserveScroll: true,
+                                                preserveState: true,
+                                            },
+                                        );
+                                        router.visit(
+                                            `/student/courses/${courseware.id}`,
+                                        );
+                                    }}
                                 />
                             </div>
                         </section>

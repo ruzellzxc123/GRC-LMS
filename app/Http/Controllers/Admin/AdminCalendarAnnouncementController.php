@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Events\AnnouncementsUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\CalendarAnnouncement;
 use Illuminate\Http\RedirectResponse;
@@ -31,12 +32,16 @@ class AdminCalendarAnnouncementController extends Controller
             ],
         );
 
+        AnnouncementsUpdated::dispatch();
+
         return Redirect::back()->with('success', 'Announcement saved.');
     }
 
     public function destroy(CalendarAnnouncement $announcement): RedirectResponse
     {
         $announcement->delete();
+
+        AnnouncementsUpdated::dispatch();
 
         return Redirect::back()->with('success', 'Announcement removed.');
     }

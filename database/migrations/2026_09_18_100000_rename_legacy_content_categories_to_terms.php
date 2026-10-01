@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\CourseContentCategory;
-use App\Models\Courseware;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 

@@ -10,7 +10,6 @@ export type User = {
     birthday: string | null;
     year_level: string | null;
     section: string | null;
-    program: string | null;
 
     avatar?: string;
     email_verified_at: string | null;

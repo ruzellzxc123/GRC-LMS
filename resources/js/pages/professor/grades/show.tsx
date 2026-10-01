@@ -21,38 +21,18 @@ const TERM_LABELS: Record<Term, string> = {
     finals: 'Finals',
 };
 
-const FOLD_CONFIG: Partial<
-    Record<
-        Term,
-        {
-            fold: 'midterm' | 'finals';
-            previousLabel: string;
-            periodLabel: string;
-            previousKey: 'prelims_weight' | 'midterm_weight';
-            periodKey: 'midterm_period_weight' | 'finals_weight';
-        }
-    >
-> = {
-    midterm: {
-        fold: 'midterm',
-        previousLabel: 'Prelims Grade',
-        periodLabel: 'Midterm Period',
-        previousKey: 'prelims_weight',
-        periodKey: 'midterm_period_weight',
-    },
-    finals: {
-        fold: 'finals',
-        previousLabel: 'Midterm Grade',
-        periodLabel: 'Finals Period',
-        previousKey: 'midterm_weight',
-        periodKey: 'finals_weight',
-    },
+// Which extra "what fed into this" columns appear next to the term's own
+// grade, once a later term is being viewed — Prelims and Midterm now each
+// carry a direct, independent share of the Overall Grade, so Finals shows
+// both of them rather than just one folded-together number.
+const CONTRIBUTING_TERMS: Partial<Record<Term, Term[]>> = {
+    midterm: ['prelims'],
+    finals: ['prelims', 'midterm'],
 };
 
 interface Courseware {
     id: number;
     subject: string;
-    course_code: string | null;
 }
 
 interface CategoryItem {
@@ -90,7 +70,6 @@ interface GradesProps {
     term: Term;
     termWeights: {
         prelims_weight: number;
-        midterm_period_weight: number;
         midterm_weight: number;
         finals_weight: number;
     };
@@ -108,7 +87,7 @@ function scoreKey(itemKey: string, studentId: number): string {
 }
 
 function formatScore(score: number | null): string {
-    return score === null ? '—' : `${score}%`;
+    return score === null ? '—' : `${Math.round(score)}%`;
 }
 
 export default function Grades({
@@ -190,34 +169,31 @@ export default function Grades({
     // Term composition — how much the previous cumulative grade and this
     // period's own work each contribute. Not relevant on the Prelims tab
     // since Prelims has no previous period to fold in.
-    const foldConfig = FOLD_CONFIG[term];
+    const contributingTerms = CONTRIBUTING_TERMS[term];
     const [termSplit, setTermSplit] = useState({
-        previous: String(foldConfig ? termWeights[foldConfig.previousKey] : 0),
-        period: String(foldConfig ? termWeights[foldConfig.periodKey] : 0),
+        prelims: String(termWeights.prelims_weight),
+        midterm: String(termWeights.midterm_weight),
+        finals: String(termWeights.finals_weight),
     });
     const [termSplitProcessing, setTermSplitProcessing] = useState(false);
     const termSplitTotal =
         Math.round(
-            ((Number(termSplit.previous) || 0) +
-                (Number(termSplit.period) || 0)) *
+            ((Number(termSplit.prelims) || 0) +
+                (Number(termSplit.midterm) || 0) +
+                (Number(termSplit.finals) || 0)) *
                 100,
         ) / 100;
     const isValidTermSplit = Math.abs(termSplitTotal - 100) < 0.01;
 
-    const remainingSplitFor = (which: 'previous' | 'period') => {
-        const other =
-            which === 'previous' ? termSplit.period : termSplit.previous;
+    const remainingSplitFor = (which: Term) => {
+        const othersSum = (Object.keys(termSplit) as Term[])
+            .filter((key) => key !== which)
+            .reduce((sum, key) => sum + (Number(termSplit[key]) || 0), 0);
 
-        return Math.max(
-            0,
-            Math.round((100 - (Number(other) || 0)) * 100) / 100,
-        );
+        return Math.max(0, Math.round((100 - othersSum) * 100) / 100);
     };
 
-    const updateTermSplit = (
-        which: 'previous' | 'period',
-        rawValue: string,
-    ) => {
+    const updateTermSplit = (which: Term, rawValue: string) => {
         const numValue = Number(rawValue);
         const value =
             rawValue === '' || Number.isNaN(numValue)
@@ -228,17 +204,14 @@ export default function Grades({
     };
 
     const saveTermSplit = () => {
-        if (!foldConfig) {
-            return;
-        }
-
         setTermSplitProcessing(true);
         router.put(
             `/professor/courses/${courseware.id}/grades/term-weights`,
             {
-                fold: foldConfig.fold,
-                previous_weight: Number(termSplit.previous) || 0,
-                period_weight: Number(termSplit.period) || 0,
+                term,
+                prelims_weight: Number(termSplit.prelims) || 0,
+                midterm_weight: Number(termSplit.midterm) || 0,
+                finals_weight: Number(termSplit.finals) || 0,
             },
             {
                 preserveScroll: true,
@@ -402,14 +375,11 @@ export default function Grades({
                                 </div>
                                 <h1 className="mt-2 text-2xl font-bold">
                                     {courseware.subject}
-                                    {courseware.course_code
-                                        ? ` (${courseware.course_code})`
-                                        : ''}
                                 </h1>
                                 <p className="mt-2 text-sm text-red-100">
-                                    Grades cascade cumulatively: Midterm
-                                    includes Prelims, and Finals includes
-                                    Midterm.
+                                    Prelims, Midterm, and Finals each carry a
+                                    direct share of the Overall Grade — always
+                                    adding up to 100%.
                                 </p>
                             </div>
 
@@ -459,110 +429,85 @@ export default function Grades({
                         </div>
                     </section>
 
-                    {foldConfig && (
-                        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                            <div className="border-b border-slate-200 px-5 py-4">
-                                <h2 className="font-semibold text-slate-900">
-                                    Term Composition
-                                </h2>
-                                <p className="mt-1 text-sm text-slate-500">
-                                    How much the {foldConfig.previousLabel} and
-                                    the {foldConfig.periodLabel} each contribute
-                                    to the cumulative {TERM_LABELS[term]} Grade
-                                    — must always add up to 100%.
-                                </p>
-                            </div>
-                            <div className="flex flex-wrap items-end gap-4 p-5">
-                                <div className="grid w-40 gap-1.5">
-                                    <label
-                                        htmlFor="previous-weight"
-                                        className="text-xs font-medium text-slate-600"
+                    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                        <div className="border-b border-slate-200 px-5 py-4">
+                            <h2 className="font-semibold text-slate-900">
+                                Term Weights
+                            </h2>
+                            <p className="mt-1 text-sm text-slate-500">
+                                How much Prelims, Midterm, and Finals each count
+                                toward the subject's Overall Grade — must always
+                                add up to 100%. Applies to all three tabs.
+                            </p>
+                        </div>
+                        <div className="flex flex-wrap items-end gap-4 p-5">
+                            {(['prelims', 'midterm', 'finals'] as Term[]).map(
+                                (key) => (
+                                    <div
+                                        key={key}
+                                        className="grid w-40 gap-1.5"
                                     >
-                                        {foldConfig.previousLabel}
-                                    </label>
-                                    <div className="relative">
-                                        <input
-                                            id="previous-weight"
-                                            type="number"
-                                            min={0}
-                                            max={remainingSplitFor('previous')}
-                                            step="0.5"
-                                            value={termSplit.previous}
-                                            onChange={(event) =>
-                                                updateTermSplit(
-                                                    'previous',
-                                                    event.target.value,
-                                                )
-                                            }
-                                            className="h-10 w-full rounded-lg border border-slate-300 bg-white pr-7 pl-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                                        />
-                                        <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-slate-400">
-                                            %
-                                        </span>
+                                        <label
+                                            htmlFor={`${key}-weight`}
+                                            className="text-xs font-medium text-slate-600"
+                                        >
+                                            {TERM_LABELS[key]}
+                                        </label>
+                                        <div className="relative">
+                                            <input
+                                                id={`${key}-weight`}
+                                                type="number"
+                                                min={0}
+                                                max={remainingSplitFor(key)}
+                                                step="0.5"
+                                                value={termSplit[key]}
+                                                onChange={(event) =>
+                                                    updateTermSplit(
+                                                        key,
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                className="h-10 w-full rounded-lg border border-slate-300 bg-white pr-7 pl-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                            />
+                                            <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-slate-400">
+                                                %
+                                            </span>
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="grid w-40 gap-1.5">
-                                    <label
-                                        htmlFor="period-weight"
-                                        className="text-xs font-medium text-slate-600"
-                                    >
-                                        {foldConfig.periodLabel}
-                                    </label>
-                                    <div className="relative">
-                                        <input
-                                            id="period-weight"
-                                            type="number"
-                                            min={0}
-                                            max={remainingSplitFor('period')}
-                                            step="0.5"
-                                            value={termSplit.period}
-                                            onChange={(event) =>
-                                                updateTermSplit(
-                                                    'period',
-                                                    event.target.value,
-                                                )
-                                            }
-                                            className="h-10 w-full rounded-lg border border-slate-300 bg-white pr-7 pl-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                                        />
-                                        <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-slate-400">
-                                            %
-                                        </span>
-                                    </div>
-                                </div>
-                                <div className="ml-auto flex flex-col items-end gap-2">
-                                    <span
-                                        className={`text-sm font-semibold ${
-                                            isValidTermSplit
-                                                ? 'text-emerald-600'
-                                                : 'text-red-600'
-                                        }`}
-                                    >
-                                        Total: {termSplitTotal}%
-                                    </span>
-                                    <button
-                                        type="button"
-                                        onClick={saveTermSplit}
-                                        disabled={
-                                            !isValidTermSplit ||
-                                            termSplitProcessing
-                                        }
-                                        className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                        <Save className="size-4" />
-                                        {termSplitProcessing
-                                            ? 'Saving...'
-                                            : 'Save Composition'}
-                                    </button>
-                                </div>
-                            </div>
-                            {errors.term_weights && (
-                                <p className="flex items-center gap-2 border-t border-red-200 bg-red-50 px-5 py-3 text-sm text-red-700">
-                                    <AlertTriangle className="size-4 shrink-0" />
-                                    {errors.term_weights}
-                                </p>
+                                ),
                             )}
-                        </section>
-                    )}
+                            <div className="ml-auto flex flex-col items-end gap-2">
+                                <span
+                                    className={`text-sm font-semibold ${
+                                        isValidTermSplit
+                                            ? 'text-emerald-600'
+                                            : 'text-red-600'
+                                    }`}
+                                >
+                                    Total: {termSplitTotal}%
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={saveTermSplit}
+                                    disabled={
+                                        !isValidTermSplit || termSplitProcessing
+                                    }
+                                    className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    <Save className="size-4" />
+                                    {termSplitProcessing
+                                        ? 'Saving...'
+                                        : 'Save Term Weights'}
+                                </button>
+                            </div>
+                        </div>
+                        {errors.term_weights && (
+                            <p className="flex items-center gap-2 border-t border-red-200 bg-red-50 px-5 py-3 text-sm text-red-700">
+                                <AlertTriangle className="size-4 shrink-0" />
+                                {errors.term_weights}
+                            </p>
+                        )}
+                    </section>
 
                     {categories.length > 0 && (
                         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -788,26 +733,33 @@ export default function Grades({
                                                         : ''
                                                 }`}
                                             >
-                                                {term === 'prelims'
-                                                    ? 'Prelims Grade'
-                                                    : foldConfig?.periodLabel}
+                                                {TERM_LABELS[term]} Grade
                                             </th>
-                                            {foldConfig && (
+                                            {contributingTerms && (
                                                 <>
-                                                    <th
-                                                        rowSpan={2}
-                                                        className="border-l border-slate-200 px-5 py-3 align-bottom font-semibold"
-                                                    >
-                                                        {
-                                                            foldConfig.previousLabel
-                                                        }
-                                                    </th>
+                                                    {contributingTerms.map(
+                                                        (contributingTerm) => (
+                                                            <th
+                                                                key={
+                                                                    contributingTerm
+                                                                }
+                                                                rowSpan={2}
+                                                                className="border-l border-slate-200 px-5 py-3 align-bottom font-semibold"
+                                                            >
+                                                                {
+                                                                    TERM_LABELS[
+                                                                        contributingTerm
+                                                                    ]
+                                                                }{' '}
+                                                                Grade
+                                                            </th>
+                                                        ),
+                                                    )}
                                                     <th
                                                         rowSpan={2}
                                                         className="border-l border-slate-200 px-5 py-3 align-bottom font-semibold text-red-700"
                                                     >
-                                                        {TERM_LABELS[term]}{' '}
-                                                        Grade
+                                                        Overall Grade
                                                     </th>
                                                 </>
                                             )}
@@ -1172,6 +1124,12 @@ export default function Grades({
                                                 )}
                                                 {term === 'finals' && (
                                                     <>
+                                                        <td className="border-l border-slate-100 px-5 py-4 text-sm text-slate-600">
+                                                            {formatScore(
+                                                                row.prelims_grade ??
+                                                                    null,
+                                                            )}
+                                                        </td>
                                                         <td className="border-l border-slate-100 px-5 py-4 text-sm text-slate-600">
                                                             {formatScore(
                                                                 row.midterm_grade ??

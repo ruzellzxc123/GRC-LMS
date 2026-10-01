@@ -22,6 +22,7 @@ class CourseContentItem extends Model
         'timing_mode',
         'time_limit_minutes',
         'work_type',
+        'delivery_mode',
         'deadline',
         'max_points',
     ];

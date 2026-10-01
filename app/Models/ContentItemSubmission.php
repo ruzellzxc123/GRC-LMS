@@ -20,7 +20,10 @@ class ContentItemSubmission extends Model
     protected function casts(): array
     {
         return [
-            'score' => 'decimal:2',
+            // Always a whole number — every write path validates 'integer'.
+            // The column stayed decimal(5,2) for prior data, but the app
+            // itself never means to show or send a fractional score.
+            'score' => 'integer',
             'submitted_at' => 'datetime',
             'acknowledged_at' => 'datetime',
             'graded_at' => 'datetime',

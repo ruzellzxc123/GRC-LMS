@@ -30,7 +30,7 @@ class ProfessorRosterController extends Controller
                 'enrollment_id' => $enrollment->id,
                 'student' => $enrollment->student->only(['id', 'name', 'email', 'student_id']),
                 'attendance_rate' => $prediction['attendance_rate'],
-                'quiz_average' => $prediction['quiz_average'],
+                'academic_average' => $prediction['academic_average'],
                 'composite_score' => $prediction['composite_score'],
                 'label' => $prediction['label'],
                 'risk_level' => $prediction['risk_level'],
@@ -40,11 +40,11 @@ class ProfessorRosterController extends Controller
             ->values();
 
         $withAttendanceData = $roster->filter(fn (array $row) => $row['attendance_rate'] !== null);
-        $withQuizData = $roster->filter(fn (array $row) => $row['quiz_average'] !== null);
+        $withAcademicData = $roster->filter(fn (array $row) => $row['academic_average'] !== null);
 
         $submissions = ContentItemSubmission::query()
             ->whereHas('item.category', fn ($query) => $query->where('courseware_id', $courseware->id))
-            ->with(['student:id,name', 'item:id,title'])
+            ->with(['student:id,name', 'item:id,title,max_points'])
             ->orderByRaw('COALESCE(graded_at, acknowledged_at, submitted_at) DESC')
             ->get();
 
@@ -56,7 +56,7 @@ class ProfessorRosterController extends Controller
 
         return Inertia::render('professor/roster', [
             'courseware' => [
-                ...$courseware->only(['id', 'subject', 'course_code', 'meeting_link']),
+                ...$courseware->only(['id', 'subject', 'meeting_link']),
                 'effective_meeting_link' => $courseware->meetingUrl(),
                 'uses_embedded_meeting' => $courseware->usesEmbeddedMeeting(),
             ],
@@ -64,7 +64,7 @@ class ProfessorRosterController extends Controller
             'summary' => [
                 'student_count' => $roster->count(),
                 'avg_attendance' => $withAttendanceData->isEmpty() ? null : round($withAttendanceData->avg('attendance_rate'), 1),
-                'avg_quiz_score' => $withQuizData->isEmpty() ? null : round($withQuizData->avg('quiz_average'), 1),
+                'avg_academic_score' => $withAcademicData->isEmpty() ? null : round($withAcademicData->avg('academic_average'), 1),
                 'at_risk_count' => $roster->filter(fn (array $row) => $row['risk_level'] === 'high')->count(),
             ],
             'grading' => [
@@ -76,7 +76,9 @@ class ProfessorRosterController extends Controller
                     'student_name' => $submission->student->name,
                     'item_title' => $submission->item->title,
                     'status' => $gradingStatus($submission),
-                    'score' => $submission->score,
+                    'score' => $submission->score !== null
+                        ? round($submission->score / $submission->item->max_points * 100)
+                        : null,
                     'submitted_at' => $submission->submitted_at->toIso8601String(),
                 ])->values(),
             ],

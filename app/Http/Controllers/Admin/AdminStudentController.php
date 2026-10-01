@@ -19,12 +19,6 @@ class AdminStudentController extends Controller
 {
     use ProfileValidationRules;
 
-    private const PROGRAMS = [
-        'Bachelor of Science In Computer Science',
-        'Bachelor of Science In Education',
-        'Bachelor of Science In Accounting',
-    ];
-
     public function index(Request $request): Response
     {
         $search = trim(
@@ -41,8 +35,7 @@ class AdminStudentController extends Controller
                             ->where('name', 'like', "%{$search}%")
                             ->orWhere('email', 'like', "%{$search}%")
                             ->orWhere('student_id', 'like', "%{$search}%")
-                            ->orWhere('section', 'like', "%{$search}%")
-                            ->orWhere('program', 'like', "%{$search}%");
+                            ->orWhere('section', 'like', "%{$search}%");
                     });
                 },
             )
@@ -54,7 +47,6 @@ class AdminStudentController extends Controller
                     'name',
                     'email',
                     'student_id',
-                    'program',
                     'year_level',
                     'section',
                 ],
@@ -78,6 +70,8 @@ class AdminStudentController extends Controller
 
             'passwordRules' => Password::defaults()
                 ->toPasswordRulesString(),
+
+            'studentIdPrefix' => User::currentStudentIdPrefix(),
         ]);
     }
 
@@ -105,11 +99,6 @@ class AdminStudentController extends Controller
                 'before_or_equal:today',
             ],
 
-            'program' => [
-                'required',
-                Rule::in(self::PROGRAMS),
-            ],
-
             'year_level' => [
                 'required',
                 Rule::in([
@@ -122,10 +111,15 @@ class AdminStudentController extends Controller
 
             'section' => $this->sectionRules($request),
 
+            // Deliberately not Password::defaults() — this is just the
+            // temporary password that gets the account started. Every new
+            // student is forced through the strict-validated change flow
+            // (see RequirePasswordChange/StudentPasswordChangeController)
+            // before they can do anything else, so that's where strength
+            // actually gets enforced.
             'password' => [
                 'required',
                 'confirmed',
-                Password::defaults(),
             ],
         ]);
 
@@ -138,7 +132,6 @@ class AdminStudentController extends Controller
         $student->email = $validated['email'];
         $student->student_id = $validated['student_id'];
         $student->birthday = $validated['birthday'] ?? null;
-        $student->program = $validated['program'];
         $student->year_level = $validated['year_level'];
         $student->section = $validated['section'];
         $student->role = 'student';
@@ -177,7 +170,6 @@ class AdminStudentController extends Controller
                         ->format('Y-m-d')
                     : null,
 
-                'program' => $student->program,
                 'year_level' => $student->year_level,
                 'section' => $student->section,
             ],
@@ -215,11 +207,6 @@ class AdminStudentController extends Controller
                 'before_or_equal:today',
             ],
 
-            'program' => [
-                'required',
-                Rule::in(self::PROGRAMS),
-            ],
-
             'year_level' => [
                 'required',
                 Rule::in([
@@ -237,7 +224,6 @@ class AdminStudentController extends Controller
         $student->name = $validated['name'];
         $student->email = $validated['email'];
         $student->birthday = $validated['birthday'] ?? null;
-        $student->program = $validated['program'];
         $student->year_level = $validated['year_level'];
         $student->section = $validated['section'];
 

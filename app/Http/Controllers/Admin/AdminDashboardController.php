@@ -27,8 +27,7 @@ class AdminDashboardController extends Controller
         $atRiskStudents = User::query()
             ->where('role', 'student')
             ->where(function ($query) {
-                $query->whereNull('program')
-                    ->orWhereNull('year_level')
+                $query->whereNull('year_level')
                     ->orWhereNull('section');
             })
             ->count();
@@ -58,7 +57,7 @@ class AdminDashboardController extends Controller
 
         $flagCounts = [
             'low_attendance' => $predictions->filter(fn (array $p) => in_array('low_attendance', $p['flags'], true))->count(),
-            'low_quiz_performance' => $predictions->filter(fn (array $p) => in_array('low_quiz_performance', $p['flags'], true))->count(),
+            'low_academic_performance' => $predictions->filter(fn (array $p) => in_array('low_academic_performance', $p['flags'], true))->count(),
             'incomplete_profile' => $predictions->filter(fn (array $p) => in_array('incomplete_profile', $p['flags'], true))->count(),
         ];
 
@@ -85,7 +84,7 @@ class AdminDashboardController extends Controller
 
         $recentGraded = ContentItemSubmission::query()
             ->whereNotNull('graded_at')
-            ->with('student:id,name')
+            ->with(['student:id,name', 'item:id,max_points'])
             ->latest('graded_at')
             ->limit(5)
             ->get();
@@ -106,7 +105,9 @@ class AdminDashboardController extends Controller
             ->concat($recentGraded->map(fn (ContentItemSubmission $submission) => [
                 'type' => 'grade',
                 'title' => "Graded submission for {$submission->student->name}",
-                'meta' => $submission->score !== null ? "{$submission->score}%" : null,
+                'meta' => $submission->score !== null
+                    ? round($submission->score / $submission->item->max_points * 100).'%'
+                    : null,
                 'at' => $submission->graded_at,
             ]))
             ->sortByDesc('at')
@@ -141,7 +142,6 @@ class AdminDashboardController extends Controller
                     'name',
                     'student_id',
                     'email',
-                    'program',
                     'year_level',
                     'section',
                 ]),

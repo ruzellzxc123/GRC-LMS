@@ -9,7 +9,6 @@ import {
     Plus,
     Save,
     Users,
-    Video,
     X,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -23,8 +22,28 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { dropQueryParam } from '@/lib/back-navigation';
+import type { CurriculumSubject } from '@/lib/curriculum-options';
+import { getCurriculumSubjectOptions } from '@/lib/curriculum-options';
 import { generateRandomCode } from '@/lib/random-code';
 import { getSectionOptions } from '@/lib/section-options';
+
+const MANUAL_SUBJECT = '__manual__';
+
+// Same palette and per-id selection as the student "My Subjects" cards
+// (resources/js/pages/student/courses/index.tsx), so a subject looks
+// consistent regardless of which role is viewing it — red/white brand
+// family only, varying shade for visual distinction between cards.
+const BANNER_GRADIENTS = [
+    'from-red-700 to-red-500',
+    'from-rose-700 to-rose-500',
+    'from-red-900 to-red-700',
+    'from-orange-700 to-red-600',
+    'from-rose-800 to-red-600',
+    'from-red-600 to-orange-500',
+    'from-red-800 to-rose-600',
+    'from-rose-600 to-orange-500',
+];
 
 function rollSubjectCode(inputId: string) {
     const input = document.getElementById(inputId) as HTMLInputElement | null;
@@ -38,7 +57,6 @@ function rollSubjectCode(inputId: string) {
 interface Course {
     id: number;
     subject: string;
-    course_code: string | null;
     subject_code: string | null;
     professor_id: number | null;
     module_title: string;
@@ -48,12 +66,14 @@ interface Course {
     today_hyflex_mode: 'f2f' | 'online' | null;
     department_id: number | null;
     academic_term_id: number | null;
+    schedule_mode: 'single' | 'dual';
     class_day: string | null;
     class_start_time: string | null;
     class_end_time: string | null;
+    class_day_2: string | null;
+    class_start_time_2: string | null;
+    class_end_time_2: string | null;
     enrollments_count: number;
-    meeting_link: string;
-    uses_embedded_meeting: boolean;
     department?: {
         name: string;
     } | null;
@@ -79,6 +99,7 @@ interface Department {
 interface AcademicTerm {
     id: number;
     name: string;
+    semester: string | null;
     start_date: string;
     end_date: string;
 }
@@ -100,6 +121,7 @@ interface CoursesIndexProps {
     departments: Department[];
     academic_terms: AcademicTerm[];
     professors: Professor[];
+    curriculum_subjects: CurriculumSubject[];
 }
 
 export default function ProfessorCoursesIndex({
@@ -110,6 +132,7 @@ export default function ProfessorCoursesIndex({
     departments,
     academic_terms,
     professors,
+    curriculum_subjects,
 }: CoursesIndexProps) {
     const [yearLevel, setYearLevel] = useState(filters.year_level ?? '');
     const [departmentId, setDepartmentId] = useState(
@@ -118,12 +141,53 @@ export default function ProfessorCoursesIndex({
     const [showCreateModal, setShowCreateModal] = useState(
         () => new URLSearchParams(window.location.search).get('create') === '1',
     );
+
+    // Dismissing the modal has to drop `?create=1` too — otherwise coming
+    // back to this exact URL later (browser Back/Forward, or a refresh)
+    // reopens it even though the user already closed it once.
+    const closeCreateModal = () => {
+        setShowCreateModal(false);
+        dropQueryParam('create');
+    };
     const [formYearLevel, setFormYearLevel] = useState('');
+    const [formDepartmentId, setFormDepartmentId] = useState('');
+    const [formAcademicTermId, setFormAcademicTermId] = useState('');
+    const [formSubject, setFormSubject] = useState('');
+    const [formSubjectManual, setFormSubjectManual] = useState('');
+    const [formScheduleMode, setFormScheduleMode] = useState<'single' | 'dual'>(
+        'single',
+    );
     const sectionOptions = getSectionOptions(formYearLevel);
+    const createSubjectOptions = getCurriculumSubjectOptions(
+        curriculum_subjects,
+        formDepartmentId,
+        formYearLevel,
+        formAcademicTermId,
+        academic_terms,
+    );
+    const createSubjectFiltersReady =
+        formYearLevel !== '' &&
+        formAcademicTermId !== '' &&
+        formDepartmentId !== '';
+
+    const resetCreateForm = () => {
+        setFormYearLevel('');
+        setFormDepartmentId('');
+        setFormAcademicTermId('');
+        setFormSubject('');
+        setFormSubjectManual('');
+        setFormScheduleMode('single');
+    };
 
     const [editingCourse, setEditingCourse] = useState<Course | null>(null);
     const [editYearLevel, setEditYearLevel] = useState('');
     const [editDepartmentId, setEditDepartmentId] = useState('');
+    const [editAcademicTermId, setEditAcademicTermId] = useState('');
+    const [editSubject, setEditSubject] = useState('');
+    const [editSubjectManual, setEditSubjectManual] = useState('');
+    const [editScheduleMode, setEditScheduleMode] = useState<'single' | 'dual'>(
+        'single',
+    );
     const editSectionOptions = getSectionOptions(editYearLevel);
     const editAvailableProfessors = editDepartmentId
         ? professors.filter(
@@ -132,13 +196,48 @@ export default function ProfessorCoursesIndex({
                   professor.id === editingCourse?.professor_id,
           )
         : professors;
+    const editSubjectOptions = getCurriculumSubjectOptions(
+        curriculum_subjects,
+        editDepartmentId,
+        editYearLevel,
+        editAcademicTermId,
+        academic_terms,
+    );
+    const editSubjectFiltersReady =
+        editYearLevel !== '' &&
+        editAcademicTermId !== '' &&
+        editDepartmentId !== '';
 
     const openEditModal = (course: Course) => {
         setEditingCourse(course);
         setEditYearLevel(course.year_level ?? '');
+        setEditScheduleMode(course.schedule_mode);
         setEditDepartmentId(
             course.department_id !== null ? String(course.department_id) : '',
         );
+        setEditAcademicTermId(
+            course.academic_term_id !== null
+                ? String(course.academic_term_id)
+                : '',
+        );
+
+        const initialOptions = getCurriculumSubjectOptions(
+            curriculum_subjects,
+            course.department_id !== null ? String(course.department_id) : '',
+            course.year_level ?? '',
+            course.academic_term_id !== null
+                ? String(course.academic_term_id)
+                : '',
+            academic_terms,
+        );
+
+        if (initialOptions.some((option) => option.title === course.subject)) {
+            setEditSubject(course.subject);
+            setEditSubjectManual('');
+        } else {
+            setEditSubject(MANUAL_SUBJECT);
+            setEditSubjectManual(course.subject);
+        }
     };
 
     const applyFilters = (
@@ -271,145 +370,102 @@ export default function ProfessorCoursesIndex({
 
                         {courses.data.length > 0 ? (
                             <>
-                                <div className="overflow-x-auto">
-                                    <table className="w-full min-w-[900px] text-left">
-                                        <thead className="bg-slate-50 text-xs tracking-wide text-slate-500 uppercase">
-                                            <tr>
-                                                <th className="px-5 py-3">
-                                                    Subject
-                                                </th>
-                                                <th className="px-5 py-3">
-                                                    Year Level
-                                                </th>
-                                                <th className="px-5 py-3">
-                                                    Section
-                                                </th>
-                                                <th className="px-5 py-3">
-                                                    Department
-                                                </th>
-                                                <th className="px-5 py-3">
-                                                    Enrolled
-                                                </th>
-                                                <th className="px-5 py-3 text-right">
-                                                    Actions
-                                                </th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {courses.data.map((course) => (
-                                                <tr
-                                                    key={course.id}
-                                                    className="hover:bg-red-50/40"
+                                <div className="grid gap-4 p-5 sm:grid-cols-2 xl:grid-cols-3">
+                                    {courses.data.map((course) => (
+                                        <div
+                                            key={course.id}
+                                            className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md"
+                                        >
+                                            <div
+                                                className={`relative bg-gradient-to-br p-4 pb-8 ${
+                                                    BANNER_GRADIENTS[
+                                                        course.id %
+                                                            BANNER_GRADIENTS.length
+                                                    ]
+                                                }`}
+                                            >
+                                                <Link
+                                                    href={`/professor/courses/${course.id}/content`}
+                                                    className="line-clamp-2 pr-12 text-lg font-bold text-white hover:underline"
                                                 >
-                                                    <td className="px-5 py-4">
-                                                        <div className="flex items-center gap-2">
-                                                            <Link
-                                                                href={`/professor/courses/${course.id}/content`}
-                                                                className="font-medium text-slate-900 hover:text-red-700 hover:underline"
-                                                            >
-                                                                {course.subject}
-                                                            </Link>
-                                                            {course.uses_embedded_meeting ? (
-                                                                <Link
-                                                                    href={`/professor/courses/${course.id}/meeting`}
-                                                                    title="Join the online class"
-                                                                    aria-label="Join the online class"
-                                                                    className="inline-flex shrink-0 items-center justify-center rounded-full bg-red-50 p-1.5 text-red-600 hover:bg-red-100"
-                                                                >
-                                                                    <Video className="size-3.5" />
-                                                                </Link>
-                                                            ) : (
-                                                                <a
-                                                                    href={
-                                                                        course.meeting_link
-                                                                    }
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    title="Join the online class"
-                                                                    aria-label="Join the online class"
-                                                                    className="inline-flex shrink-0 items-center justify-center rounded-full bg-red-50 p-1.5 text-red-600 hover:bg-red-100"
-                                                                >
-                                                                    <Video className="size-3.5" />
-                                                                </a>
-                                                            )}
-                                                        </div>
-                                                        <div className="mt-1 text-xs text-slate-500">
-                                                            {
-                                                                course.module_title
-                                                            }
-                                                        </div>
-                                                        {course.today_hyflex_mode && (
-                                                            <span
-                                                                className={`mt-1.5 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                                                    course.today_hyflex_mode ===
-                                                                    'f2f'
-                                                                        ? 'bg-orange-100 text-orange-700'
-                                                                        : 'bg-cyan-100 text-cyan-700'
-                                                                }`}
-                                                            >
-                                                                Today:{' '}
-                                                                {course.today_hyflex_mode ===
-                                                                'f2f'
-                                                                    ? 'Face-to-Face'
-                                                                    : 'Online'}
-                                                            </span>
-                                                        )}
-                                                    </td>
-                                                    <td className="px-5 py-4 text-sm text-slate-600">
+                                                    {course.subject}
+                                                </Link>
+                                                <p className="mt-1 text-sm text-white/80">
+                                                    Section{' '}
+                                                    {course.section ??
+                                                        'Unassigned'}
+                                                </p>
+                                                <div className="absolute right-4 -bottom-5 flex size-11 flex-col items-center justify-center gap-0.5 rounded-full border-2 border-white bg-white text-red-700 shadow-sm">
+                                                    <Users className="size-3.5" />
+                                                    <span className="text-[10px] leading-none font-bold">
+                                                        {
+                                                            course.enrollments_count
+                                                        }
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            <div className="px-4 pt-7 pb-4">
+                                                <p className="truncate text-sm text-slate-600">
+                                                    {course.module_title}
+                                                </p>
+                                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
                                                         {course.year_level ??
-                                                            'Unassigned'}
-                                                    </td>
-                                                    <td className="px-5 py-4 text-sm text-slate-600">
-                                                        {course.section ??
-                                                            'Unassigned'}
-                                                    </td>
-                                                    <td className="px-5 py-4 text-sm text-slate-600">
+                                                            'Year level unassigned'}
+                                                    </span>
+                                                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
                                                         {course.department
                                                             ?.name ??
-                                                            'Unassigned'}
-                                                    </td>
-                                                    <td className="px-5 py-4">
-                                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
-                                                            <Users className="size-3.5" />
-                                                            {
-                                                                course.enrollments_count
-                                                            }
+                                                            'Department unassigned'}
+                                                    </span>
+                                                    {course.today_hyflex_mode && (
+                                                        <span
+                                                            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                                                course.today_hyflex_mode ===
+                                                                'f2f'
+                                                                    ? 'bg-orange-100 text-orange-700'
+                                                                    : 'bg-cyan-100 text-cyan-700'
+                                                            }`}
+                                                        >
+                                                            Today:{' '}
+                                                            {course.today_hyflex_mode ===
+                                                            'f2f'
+                                                                ? 'Face-to-Face'
+                                                                : 'Synchronous'}
                                                         </span>
-                                                    </td>
-                                                    <td className="px-5 py-4 text-right">
-                                                        <div className="inline-flex gap-2">
-                                                            <Link
-                                                                href={`/professor/courses/${course.id}/roster`}
-                                                                className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
-                                                            >
-                                                                <Users className="size-4" />
-                                                                Roster
-                                                            </Link>
-                                                            <Link
-                                                                href={`/professor/courses/${course.id}/grades/prelims`}
-                                                                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                                                            >
-                                                                <GraduationCap className="size-4" />
-                                                                Grades
-                                                            </Link>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() =>
-                                                                    openEditModal(
-                                                                        course,
-                                                                    )
-                                                                }
-                                                                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                                                            >
-                                                                <Pencil className="size-4" />
-                                                                Edit
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-slate-100 px-4 py-3">
+                                                <Link
+                                                    href={`/professor/courses/${course.id}/roster`}
+                                                    className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700 hover:bg-red-100"
+                                                >
+                                                    <Users className="size-3.5" />
+                                                    Roster
+                                                </Link>
+                                                <Link
+                                                    href={`/professor/courses/${course.id}/grades/prelims`}
+                                                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                                                >
+                                                    <GraduationCap className="size-3.5" />
+                                                    Grades
+                                                </Link>
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        openEditModal(course)
+                                                    }
+                                                    className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                                                >
+                                                    <Pencil className="size-3.5" />
+                                                    Edit
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
 
                                 <div className="flex flex-col justify-between gap-4 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center">
@@ -482,7 +538,16 @@ export default function ProfessorCoursesIndex({
                 </div>
             </div>
 
-            <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
+            <Dialog
+                open={showCreateModal}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        closeCreateModal();
+                    } else {
+                        setShowCreateModal(true);
+                    }
+                }}
+            >
                 <DialogContent className="max-h-[90vh] max-w-2xl gap-4 overflow-y-auto p-0">
                     <div className="border-b border-slate-200 p-6 pb-4">
                         <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
@@ -500,39 +565,13 @@ export default function ProfessorCoursesIndex({
                         disableWhileProcessing
                         resetOnSuccess
                         onSuccess={() => {
-                            setShowCreateModal(false);
-                            setFormYearLevel('');
+                            closeCreateModal();
+                            resetCreateForm();
                         }}
                         className="px-6 pb-6"
                     >
                         {({ processing, errors }) => (
                             <div className="grid gap-6">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="subject">
-                                        Subject Title
-                                    </Label>
-                                    <Input
-                                        id="subject"
-                                        name="subject"
-                                        required
-                                        autoFocus
-                                        placeholder="Enter subject title"
-                                    />
-                                    <InputError message={errors.subject} />
-                                </div>
-
-                                <div className="grid gap-2">
-                                    <Label htmlFor="course_code">
-                                        Subject ID
-                                    </Label>
-                                    <Input
-                                        id="course_code"
-                                        name="course_code"
-                                        placeholder="Optional subject ID"
-                                    />
-                                    <InputError message={errors.course_code} />
-                                </div>
-
                                 <div className="grid gap-2">
                                     <Label htmlFor="subject_code">
                                         Subject Code
@@ -560,7 +599,39 @@ export default function ProfessorCoursesIndex({
                                 </div>
 
                                 <div className="grid gap-2">
-                                    <Label>Class Schedule</Label>
+                                    <Label htmlFor="schedule_mode">
+                                        Class Schedule
+                                    </Label>
+                                    <select
+                                        id="schedule_mode"
+                                        name="schedule_mode"
+                                        value={formScheduleMode}
+                                        onChange={(event) =>
+                                            setFormScheduleMode(
+                                                event.target.value as
+                                                    'single' | 'dual',
+                                            )
+                                        }
+                                        className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                                    >
+                                        <option value="single">
+                                            One Class Schedule
+                                        </option>
+                                        <option value="dual">
+                                            Two Class Schedules
+                                        </option>
+                                    </select>
+                                    <InputError
+                                        message={errors.schedule_mode}
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label>
+                                        {formScheduleMode === 'dual'
+                                            ? 'Face-to-Face and Synchronous Class'
+                                            : 'Class Schedule'}
+                                    </Label>
 
                                     <div className="grid grid-cols-3 gap-4 rounded-md border border-input p-4">
                                         <div className="grid gap-2">
@@ -624,6 +695,70 @@ export default function ProfessorCoursesIndex({
                                     />
                                 </div>
 
+                                {formScheduleMode === 'dual' && (
+                                    <div className="grid gap-2">
+                                        <Label>Asynchronous Class</Label>
+
+                                        <div className="grid grid-cols-3 gap-4 rounded-md border border-input p-4">
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="class_day_2">
+                                                    Day
+                                                </Label>
+                                                <select
+                                                    id="class_day_2"
+                                                    name="class_day_2"
+                                                    defaultValue=""
+                                                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                                                >
+                                                    <option value="">
+                                                        Select day
+                                                    </option>
+                                                    {class_days.map((day) => (
+                                                        <option
+                                                            key={day}
+                                                            value={day}
+                                                        >
+                                                            {day}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="class_start_time_2">
+                                                    Start Time
+                                                </Label>
+                                                <Input
+                                                    id="class_start_time_2"
+                                                    name="class_start_time_2"
+                                                    type="time"
+                                                />
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="class_end_time_2">
+                                                    End Time
+                                                </Label>
+                                                <Input
+                                                    id="class_end_time_2"
+                                                    name="class_end_time_2"
+                                                    type="time"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <InputError
+                                            message={errors.class_day_2}
+                                        />
+                                        <InputError
+                                            message={errors.class_start_time_2}
+                                        />
+                                        <InputError
+                                            message={errors.class_end_time_2}
+                                        />
+                                    </div>
+                                )}
+
                                 <div className="grid gap-2">
                                     <Label htmlFor="hyflex_group">
                                         HyFlex Group
@@ -631,10 +766,9 @@ export default function ProfessorCoursesIndex({
                                     <select
                                         id="hyflex_group"
                                         name="hyflex_group"
-                                        defaultValue=""
+                                        defaultValue="A"
                                         className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
                                     >
-                                        <option value="">None</option>
                                         <option value="A">HyFlex A</option>
                                         <option value="B">HyFlex B</option>
                                     </select>
@@ -655,11 +789,12 @@ export default function ProfessorCoursesIndex({
                                             id="year_level"
                                             name="year_level"
                                             value={formYearLevel}
-                                            onChange={(event) =>
+                                            onChange={(event) => {
                                                 setFormYearLevel(
                                                     event.target.value,
-                                                )
-                                            }
+                                                );
+                                                setFormSubject('');
+                                            }}
                                             className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
                                         >
                                             <option value="">
@@ -717,6 +852,13 @@ export default function ProfessorCoursesIndex({
                                         <select
                                             id="department_id"
                                             name="department_id"
+                                            value={formDepartmentId}
+                                            onChange={(event) => {
+                                                setFormDepartmentId(
+                                                    event.target.value,
+                                                );
+                                                setFormSubject('');
+                                            }}
                                             className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
                                         >
                                             <option value="">
@@ -743,9 +885,17 @@ export default function ProfessorCoursesIndex({
                                         <select
                                             id="academic_term_id"
                                             name="academic_term_id"
+                                            value={formAcademicTermId}
+                                            onChange={(event) => {
+                                                setFormAcademicTermId(
+                                                    event.target.value,
+                                                );
+                                                setFormSubject('');
+                                            }}
+                                            required
                                             className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
                                         >
-                                            <option value="">
+                                            <option value="" disabled>
                                                 Select term
                                             </option>
                                             {academic_terms.map((term) => (
@@ -763,12 +913,115 @@ export default function ProfessorCoursesIndex({
                                     </div>
                                 </div>
 
+                                <div className="grid gap-2">
+                                    <Label htmlFor="subject">
+                                        Subject Title
+                                    </Label>
+                                    <select
+                                        id="subject"
+                                        name={
+                                            formSubject === MANUAL_SUBJECT
+                                                ? undefined
+                                                : 'subject'
+                                        }
+                                        disabled={!createSubjectFiltersReady}
+                                        value={formSubject}
+                                        onChange={(event) =>
+                                            setFormSubject(event.target.value)
+                                        }
+                                        required
+                                        className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        <option value="" disabled>
+                                            {createSubjectFiltersReady
+                                                ? 'Select subject title'
+                                                : 'Select year level, academic term, and department first'}
+                                        </option>
+                                        {createSubjectOptions
+                                            .filter(
+                                                (option) =>
+                                                    option.category ===
+                                                    'regular',
+                                            )
+                                            .map((option) => (
+                                                <option
+                                                    key={option.id}
+                                                    value={option.title}
+                                                >
+                                                    {option.code} —{' '}
+                                                    {option.title}
+                                                </option>
+                                            ))}
+                                        {createSubjectOptions.some(
+                                            (option) =>
+                                                option.category === 'bridging',
+                                        ) && (
+                                            <optgroup label="Bridging Course">
+                                                {createSubjectOptions
+                                                    .filter(
+                                                        (option) =>
+                                                            option.category ===
+                                                            'bridging',
+                                                    )
+                                                    .map((option) => (
+                                                        <option
+                                                            key={option.id}
+                                                            value={option.title}
+                                                        >
+                                                            {option.code} —{' '}
+                                                            {option.title}
+                                                        </option>
+                                                    ))}
+                                            </optgroup>
+                                        )}
+                                        {createSubjectOptions.some(
+                                            (option) =>
+                                                option.category === 'elective',
+                                        ) && (
+                                            <optgroup label="Professional Electives">
+                                                {createSubjectOptions
+                                                    .filter(
+                                                        (option) =>
+                                                            option.category ===
+                                                            'elective',
+                                                    )
+                                                    .map((option) => (
+                                                        <option
+                                                            key={option.id}
+                                                            value={option.title}
+                                                        >
+                                                            {option.code} —{' '}
+                                                            {option.title}
+                                                        </option>
+                                                    ))}
+                                            </optgroup>
+                                        )}
+                                        <option value={MANUAL_SUBJECT}>
+                                            Other (type manually)
+                                        </option>
+                                    </select>
+                                    {formSubject === MANUAL_SUBJECT && (
+                                        <Input
+                                            name="subject"
+                                            value={formSubjectManual}
+                                            onChange={(event) =>
+                                                setFormSubjectManual(
+                                                    event.target.value,
+                                                )
+                                            }
+                                            required
+                                            autoFocus
+                                            placeholder="Enter subject title"
+                                            className="mt-1.5"
+                                        />
+                                    )}
+                                    <InputError message={errors.subject} />
+                                </div>
+
                                 <div className="flex justify-end gap-3 border-t border-slate-200 pt-5">
                                     <button
                                         type="button"
-                                        onClick={() =>
-                                            setShowCreateModal(false)
-                                        }
+                                        onClick={closeCreateModal}
                                         className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                                     >
                                         Cancel
@@ -822,36 +1075,6 @@ export default function ProfessorCoursesIndex({
                             {({ processing, errors }) => (
                                 <div className="grid gap-6">
                                     <div className="grid gap-2">
-                                        <Label htmlFor="edit_subject">
-                                            Subject Title
-                                        </Label>
-                                        <Input
-                                            id="edit_subject"
-                                            name="subject"
-                                            defaultValue={editingCourse.subject}
-                                            required
-                                            autoFocus
-                                        />
-                                        <InputError message={errors.subject} />
-                                    </div>
-
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="edit_course_code">
-                                            Subject ID
-                                        </Label>
-                                        <Input
-                                            id="edit_course_code"
-                                            name="course_code"
-                                            defaultValue={
-                                                editingCourse.course_code ?? ''
-                                            }
-                                        />
-                                        <InputError
-                                            message={errors.course_code}
-                                        />
-                                    </div>
-
-                                    <div className="grid gap-2">
                                         <Label htmlFor="edit_subject_code">
                                             Subject Code
                                         </Label>
@@ -893,11 +1116,12 @@ export default function ProfessorCoursesIndex({
                                             id="edit_department_id"
                                             name="department_id"
                                             value={editDepartmentId}
-                                            onChange={(event) =>
+                                            onChange={(event) => {
                                                 setEditDepartmentId(
                                                     event.target.value,
-                                                )
-                                            }
+                                                );
+                                                setEditSubject('');
+                                            }}
                                             className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
                                         >
                                             <option value="">
@@ -959,7 +1183,39 @@ export default function ProfessorCoursesIndex({
                                     </div>
 
                                     <div className="grid gap-2">
-                                        <Label>Class Schedule</Label>
+                                        <Label htmlFor="edit_schedule_mode">
+                                            Class Schedule
+                                        </Label>
+                                        <select
+                                            id="edit_schedule_mode"
+                                            name="schedule_mode"
+                                            value={editScheduleMode}
+                                            onChange={(event) =>
+                                                setEditScheduleMode(
+                                                    event.target.value as
+                                                        'single' | 'dual',
+                                                )
+                                            }
+                                            className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                                        >
+                                            <option value="single">
+                                                One Class Schedule
+                                            </option>
+                                            <option value="dual">
+                                                Two Class Schedules
+                                            </option>
+                                        </select>
+                                        <InputError
+                                            message={errors.schedule_mode}
+                                        />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label>
+                                            {editScheduleMode === 'dual'
+                                                ? 'Face-to-Face and Synchronous Class'
+                                                : 'Class Schedule'}
+                                        </Label>
 
                                         <div className="grid grid-cols-3 gap-4 rounded-md border border-input p-4">
                                             <div className="grid gap-2">
@@ -1036,6 +1292,87 @@ export default function ProfessorCoursesIndex({
                                         />
                                     </div>
 
+                                    {editScheduleMode === 'dual' && (
+                                        <div className="grid gap-2">
+                                            <Label>Asynchronous Class</Label>
+
+                                            <div className="grid grid-cols-3 gap-4 rounded-md border border-input p-4">
+                                                <div className="grid gap-2">
+                                                    <Label htmlFor="edit_class_day_2">
+                                                        Day
+                                                    </Label>
+                                                    <select
+                                                        id="edit_class_day_2"
+                                                        name="class_day_2"
+                                                        defaultValue={
+                                                            editingCourse.class_day_2 ??
+                                                            ''
+                                                        }
+                                                        className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                                                    >
+                                                        <option value="">
+                                                            Select day
+                                                        </option>
+                                                        {class_days.map(
+                                                            (day) => (
+                                                                <option
+                                                                    key={day}
+                                                                    value={day}
+                                                                >
+                                                                    {day}
+                                                                </option>
+                                                            ),
+                                                        )}
+                                                    </select>
+                                                </div>
+
+                                                <div className="grid gap-2">
+                                                    <Label htmlFor="edit_class_start_time_2">
+                                                        Start Time
+                                                    </Label>
+                                                    <Input
+                                                        id="edit_class_start_time_2"
+                                                        name="class_start_time_2"
+                                                        type="time"
+                                                        defaultValue={
+                                                            editingCourse.class_start_time_2 ??
+                                                            ''
+                                                        }
+                                                    />
+                                                </div>
+
+                                                <div className="grid gap-2">
+                                                    <Label htmlFor="edit_class_end_time_2">
+                                                        End Time
+                                                    </Label>
+                                                    <Input
+                                                        id="edit_class_end_time_2"
+                                                        name="class_end_time_2"
+                                                        type="time"
+                                                        defaultValue={
+                                                            editingCourse.class_end_time_2 ??
+                                                            ''
+                                                        }
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <InputError
+                                                message={errors.class_day_2}
+                                            />
+                                            <InputError
+                                                message={
+                                                    errors.class_start_time_2
+                                                }
+                                            />
+                                            <InputError
+                                                message={
+                                                    errors.class_end_time_2
+                                                }
+                                            />
+                                        </div>
+                                    )}
+
                                     <div className="grid gap-2">
                                         <Label htmlFor="edit_hyflex_group">
                                             HyFlex Group
@@ -1071,11 +1408,12 @@ export default function ProfessorCoursesIndex({
                                                 id="edit_year_level"
                                                 name="year_level"
                                                 value={editYearLevel}
-                                                onChange={(event) =>
+                                                onChange={(event) => {
                                                     setEditYearLevel(
                                                         event.target.value,
-                                                    )
-                                                }
+                                                    );
+                                                    setEditSubject('');
+                                                }}
                                                 className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
                                             >
                                                 <option value="">
@@ -1147,13 +1485,17 @@ export default function ProfessorCoursesIndex({
                                         <select
                                             id="edit_academic_term_id"
                                             name="academic_term_id"
-                                            defaultValue={
-                                                editingCourse.academic_term_id ??
-                                                ''
-                                            }
+                                            value={editAcademicTermId}
+                                            onChange={(event) => {
+                                                setEditAcademicTermId(
+                                                    event.target.value,
+                                                );
+                                                setEditSubject('');
+                                            }}
+                                            required
                                             className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
                                         >
-                                            <option value="">
+                                            <option value="" disabled>
                                                 Select term
                                             </option>
                                             {academic_terms.map((term) => (
@@ -1168,6 +1510,119 @@ export default function ProfessorCoursesIndex({
                                         <InputError
                                             message={errors.academic_term_id}
                                         />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="edit_subject">
+                                            Subject Title
+                                        </Label>
+                                        <select
+                                            id="edit_subject"
+                                            name={
+                                                editSubject === MANUAL_SUBJECT
+                                                    ? undefined
+                                                    : 'subject'
+                                            }
+                                            disabled={!editSubjectFiltersReady}
+                                            value={editSubject}
+                                            onChange={(event) =>
+                                                setEditSubject(
+                                                    event.target.value,
+                                                )
+                                            }
+                                            required
+                                            className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            <option value="" disabled>
+                                                {editSubjectFiltersReady
+                                                    ? 'Select subject title'
+                                                    : 'Select year level, academic term, and department first'}
+                                            </option>
+                                            {editSubjectOptions
+                                                .filter(
+                                                    (option) =>
+                                                        option.category ===
+                                                        'regular',
+                                                )
+                                                .map((option) => (
+                                                    <option
+                                                        key={option.id}
+                                                        value={option.title}
+                                                    >
+                                                        {option.code} —{' '}
+                                                        {option.title}
+                                                    </option>
+                                                ))}
+                                            {editSubjectOptions.some(
+                                                (option) =>
+                                                    option.category ===
+                                                    'bridging',
+                                            ) && (
+                                                <optgroup label="Bridging Course">
+                                                    {editSubjectOptions
+                                                        .filter(
+                                                            (option) =>
+                                                                option.category ===
+                                                                'bridging',
+                                                        )
+                                                        .map((option) => (
+                                                            <option
+                                                                key={option.id}
+                                                                value={
+                                                                    option.title
+                                                                }
+                                                            >
+                                                                {option.code} —{' '}
+                                                                {option.title}
+                                                            </option>
+                                                        ))}
+                                                </optgroup>
+                                            )}
+                                            {editSubjectOptions.some(
+                                                (option) =>
+                                                    option.category ===
+                                                    'elective',
+                                            ) && (
+                                                <optgroup label="Professional Electives">
+                                                    {editSubjectOptions
+                                                        .filter(
+                                                            (option) =>
+                                                                option.category ===
+                                                                'elective',
+                                                        )
+                                                        .map((option) => (
+                                                            <option
+                                                                key={option.id}
+                                                                value={
+                                                                    option.title
+                                                                }
+                                                            >
+                                                                {option.code} —{' '}
+                                                                {option.title}
+                                                            </option>
+                                                        ))}
+                                                </optgroup>
+                                            )}
+                                            <option value={MANUAL_SUBJECT}>
+                                                Other (type manually)
+                                            </option>
+                                        </select>
+                                        {editSubject === MANUAL_SUBJECT && (
+                                            <Input
+                                                name="subject"
+                                                value={editSubjectManual}
+                                                onChange={(event) =>
+                                                    setEditSubjectManual(
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                required
+                                                autoFocus
+                                                placeholder="Enter subject title"
+                                                className="mt-1.5"
+                                            />
+                                        )}
+                                        <InputError message={errors.subject} />
                                     </div>
 
                                     <div className="flex justify-end gap-3 border-t border-slate-200 pt-5">

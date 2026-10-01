@@ -14,7 +14,6 @@ interface Student {
     email: string;
     student_id: string | null;
     birthday: string | null;
-    program: string | null;
     year_level: string | null;
     section: string | null;
 }
@@ -133,38 +132,6 @@ export default function EditStudent({ student }: EditStudentProps) {
                                         />
 
                                         <InputError message={errors.birthday} />
-                                    </div>
-
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="program">Program</Label>
-
-                                        <select
-                                            id="program"
-                                            name="program"
-                                            defaultValue={student.program ?? ''}
-                                            required
-                                            className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                                        >
-                                            <option value="" disabled>
-                                                Select program
-                                            </option>
-
-                                            <option value="Bachelor of Science In Computer Science">
-                                                Bachelor of Science In
-                                                Information Technology
-                                            </option>
-
-                                            <option value="Bachelor of Science In Education">
-                                                Bachelor of Science In Education
-                                            </option>
-
-                                            <option value="Bachelor of Science In Accounting">
-                                                Bachelor of Science In
-                                                Accounting
-                                            </option>
-                                        </select>
-
-                                        <InputError message={errors.program} />
                                     </div>
 
                                     <div className="grid gap-6 sm:grid-cols-2">

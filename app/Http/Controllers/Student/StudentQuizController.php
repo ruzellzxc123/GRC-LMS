@@ -125,6 +125,7 @@ class StudentQuizController extends Controller
         // blank, and those should just count as wrong, not fail validation.
         $validated = $request->validate([
             'answers' => ['nullable', 'array'],
+            'suspicious_activity_count' => ['nullable', 'integer', 'min:0', 'max:1000'],
         ] + collect($questions)->mapWithKeys(fn ($question) => [
             "answers.{$question->id}" => [
                 'nullable',
@@ -159,6 +160,7 @@ class StudentQuizController extends Controller
             $attempt->update([
                 'correct_count' => $correctCount,
                 'submitted_at' => now(),
+                'suspicious_activity_count' => $validated['suspicious_activity_count'] ?? 0,
             ]);
 
             return $attempt;

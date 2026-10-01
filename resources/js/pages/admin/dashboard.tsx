@@ -12,6 +12,7 @@ import {
     UserPlus,
     Users,
 } from 'lucide-react';
+import BibleVerseCard from '@/components/bible-verse-card';
 import DashboardAvatar from '@/components/dashboard-avatar';
 import ScoreBar from '@/components/score-bar';
 import SuccessGauge from '@/components/success-gauge';
@@ -29,7 +30,7 @@ interface Institution {
     risk_counts: { low: number; medium: number; high: number };
     flag_counts: {
         low_attendance: number;
-        low_quiz_performance: number;
+        low_academic_performance: number;
         incomplete_profile: number;
     };
     pending_grading_count: number;
@@ -55,7 +56,6 @@ interface Student {
     name: string;
     student_id: string | null;
     email: string;
-    program: string | null;
     year_level: string | null;
     section: string | null;
 }
@@ -166,8 +166,8 @@ export default function AdminDashboard({
     const insights = [
         institution.flag_counts.low_attendance > 0 &&
             `${institution.flag_counts.low_attendance} student${institution.flag_counts.low_attendance === 1 ? '' : 's'} flagged for low attendance.`,
-        institution.flag_counts.low_quiz_performance > 0 &&
-            `${institution.flag_counts.low_quiz_performance} student${institution.flag_counts.low_quiz_performance === 1 ? '' : 's'} flagged for low quiz performance.`,
+        institution.flag_counts.low_academic_performance > 0 &&
+            `${institution.flag_counts.low_academic_performance} student${institution.flag_counts.low_academic_performance === 1 ? '' : 's'} flagged for low academic performance.`,
         institution.flag_counts.incomplete_profile > 0 &&
             `${institution.flag_counts.incomplete_profile} student${institution.flag_counts.incomplete_profile === 1 ? '' : 's'} have an incomplete profile.`,
         institution.pending_grading_count > 0 &&
@@ -230,6 +230,8 @@ export default function AdminDashboard({
                             </div>
                         </div>
                     </section>
+
+                    <BibleVerseCard />
 
                     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                         {statCards.map((card) => {
@@ -430,10 +432,6 @@ export default function AdminDashboard({
                                                 </th>
 
                                                 <th className="px-5 py-3 font-semibold">
-                                                    Program
-                                                </th>
-
-                                                <th className="px-5 py-3 font-semibold">
                                                     Year Level
                                                 </th>
 
@@ -474,11 +472,6 @@ export default function AdminDashboard({
 
                                                     <td className="px-5 py-4 text-sm text-slate-600">
                                                         {student.section ??
-                                                            'Not assigned'}
-                                                    </td>
-
-                                                    <td className="px-5 py-4 text-sm text-slate-600">
-                                                        {student.program ??
                                                             'Not assigned'}
                                                     </td>
 

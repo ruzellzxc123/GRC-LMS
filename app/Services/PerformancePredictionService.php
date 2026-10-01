@@ -3,8 +3,9 @@
 namespace App\Services;
 
 use App\Models\Attendance;
+use App\Models\Courseware;
 use App\Models\Enrollment;
-use App\Models\QuizAttempt;
+use App\Models\GradeCategory;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -13,13 +14,13 @@ final class PerformancePredictionService
 {
     private const ATTENDANCE_WEIGHT = 0.4;
 
-    private const QUIZ_WEIGHT = 0.5;
+    private const ACADEMIC_WEIGHT = 0.5;
 
     private const PROFILE_WEIGHT = 0.1;
 
     private const LOW_ATTENDANCE_THRESHOLD = 75.0;
 
-    private const LOW_QUIZ_THRESHOLD = 60.0;
+    private const LOW_ACADEMIC_THRESHOLD = 60.0;
 
     private const GOOD_SCORE_THRESHOLD = 70.0;
 
@@ -27,7 +28,11 @@ final class PerformancePredictionService
 
     private const RISK_SCORE_THRESHOLD = 50.0;
 
-    private const PROFILE_FIELDS = ['program', 'year_level', 'section'];
+    private const PROFILE_FIELDS = ['year_level', 'section'];
+
+    public function __construct(
+        private readonly TermGradingService $gradingService,
+    ) {}
 
     public function predictForStudent(User $student): array
     {
@@ -37,11 +42,14 @@ final class PerformancePredictionService
             }),
         );
 
-        $quizAverage = $this->quizScoreAverage(
-            QuizAttempt::query()->where('student_id', $student->id),
-        );
+        $enrollments = Enrollment::query()
+            ->where('student_id', $student->id)
+            ->with('courseware')
+            ->get();
 
-        return $this->buildPrediction($attendanceRate, $quizAverage, $this->profileCompleteness($student));
+        $academicAverage = $this->academicAverageAcrossEnrollments($enrollments);
+
+        return $this->buildPrediction($attendanceRate, $academicAverage, $this->profileCompleteness($student));
     }
 
     public function predictForEnrollment(Enrollment $enrollment): array
@@ -50,19 +58,13 @@ final class PerformancePredictionService
             Attendance::query()->where('enrollment_id', $enrollment->id),
         );
 
-        $quizAverage = $this->quizScoreAverage(
-            QuizAttempt::query()
-                ->where('student_id', $enrollment->student_id)
-                ->whereHas('quiz', function (Builder $query) use ($enrollment): void {
-                    $query->where('courseware_id', $enrollment->courseware_id);
-                }),
-        );
+        $academicAverage = $this->academicAverageForEnrollment($enrollment);
 
         $student = $enrollment->relationLoaded('student')
             ? $enrollment->student
             : User::find($enrollment->student_id);
 
-        return $this->buildPrediction($attendanceRate, $quizAverage, $this->profileCompleteness($student));
+        return $this->buildPrediction($attendanceRate, $academicAverage, $this->profileCompleteness($student));
     }
 
     public function predictForAllStudents(): Collection
@@ -122,14 +124,14 @@ final class PerformancePredictionService
             ->values();
     }
 
-    private function buildPrediction(?float $attendanceRate, ?float $quizAverage, float $profileCompleteness): array
+    private function buildPrediction(?float $attendanceRate, ?float $academicAverage, float $profileCompleteness): array
     {
-        $compositeScore = $this->compositeScore($attendanceRate, $quizAverage, $profileCompleteness);
-        $flags = $this->riskFlags($attendanceRate, $quizAverage, $profileCompleteness);
+        $compositeScore = $this->compositeScore($attendanceRate, $academicAverage, $profileCompleteness);
+        $flags = $this->riskFlags($attendanceRate, $academicAverage, $profileCompleteness);
 
         return [
             'attendance_rate' => $attendanceRate,
-            'quiz_average' => $quizAverage,
+            'academic_average' => $academicAverage,
             'profile_completeness' => $profileCompleteness,
             'composite_score' => $compositeScore,
             'label' => $this->label($compositeScore),
@@ -151,21 +153,81 @@ final class PerformancePredictionService
         return round($present / $total * 100, 1);
     }
 
-    private function quizScoreAverage(Builder $attemptsQuery): ?float
+    /**
+     * The student's overall academic standing across every enrollment,
+     * averaging each enrollment's own academicAverageForEnrollment() so no
+     * single course with more graded items dominates another.
+     */
+    private function academicAverageAcrossEnrollments(Collection $enrollments): ?float
     {
-        $attempts = (clone $attemptsQuery)
-            ->whereNotNull('submitted_at')
-            ->get(['total_questions', 'correct_count']);
+        $values = $enrollments
+            ->map(fn (Enrollment $enrollment) => $this->academicAverageForEnrollment($enrollment))
+            ->filter(fn (?float $value) => $value !== null);
 
-        if ($attempts->isEmpty()) {
+        return $values->isEmpty() ? null : round($values->avg(), 1);
+    }
+
+    /**
+     * One enrollment's official grade so far — the same cumulative grade the
+     * student sees on their own Grades page, computed from every graded
+     * category (quizzes, assignments, activities, recitation, exams) via
+     * TermGradingService, at whichever term is furthest along with any
+     * grade recorded. Attendance is excluded here since it already has its
+     * own dedicated weight in compositeScore() — folding it in again here
+     * would double-count it.
+     */
+    private function academicAverageForEnrollment(Enrollment $enrollment): ?float
+    {
+        $courseware = $enrollment->relationLoaded('courseware')
+            ? $enrollment->courseware
+            : Courseware::find($enrollment->courseware_id);
+
+        if (! $courseware) {
             return null;
         }
 
-        $average = $attempts->avg(fn ($attempt) => $attempt->total_questions > 0
-            ? $attempt->correct_count / $attempt->total_questions * 100
-            : 0);
+        $studentId = $enrollment->student_id;
+        $termGrades = [];
 
-        return round($average, 1);
+        foreach (TermGradingService::TERMS as $term) {
+            $termGrades[$term] = $this->nonAttendanceTermGrade($courseware, $term, $studentId);
+        }
+
+        return $this->gradingService->overallGrade(
+            $courseware,
+            $termGrades['prelims'],
+            $termGrades['midterm'],
+            $termGrades['finals'],
+        );
+    }
+
+    /**
+     * A term's grade recomputed from only its non-Attendance categories,
+     * renormalized over their weights — the "everything but attendance"
+     * counterpart to TermGradingService::buildTermTable()'s term_grade.
+     */
+    private function nonAttendanceTermGrade(Courseware $courseware, string $term, int $studentId): ?float
+    {
+        $categories = $this->gradingService->categoriesForTerm($courseware, $term)
+            ->reject(fn (GradeCategory $category) => $category->name === 'Attendance');
+
+        if ($categories->isEmpty()) {
+            return null;
+        }
+
+        $table = $this->gradingService->buildTermTable($courseware, $term, $categories);
+        $row = collect($table['rows'])->firstWhere('student_id', $studentId);
+
+        if ($row === null) {
+            return null;
+        }
+
+        return $this->gradingService->weightedAverage(
+            $categories->map(fn (GradeCategory $category) => [
+                'weight' => (float) $category->weight,
+                'average' => $row['category_averages'][$category->id] ?? null,
+            ]),
+        );
     }
 
     private function profileCompleteness(User $student): float
@@ -177,7 +239,7 @@ final class PerformancePredictionService
         return round($filled / count(self::PROFILE_FIELDS) * 100, 1);
     }
 
-    private function compositeScore(?float $attendanceRate, ?float $quizAverage, float $profileCompleteness): float
+    private function compositeScore(?float $attendanceRate, ?float $academicAverage, float $profileCompleteness): float
     {
         $signals = ['profile' => ['weight' => self::PROFILE_WEIGHT, 'value' => $profileCompleteness]];
 
@@ -185,8 +247,8 @@ final class PerformancePredictionService
             $signals['attendance'] = ['weight' => self::ATTENDANCE_WEIGHT, 'value' => $attendanceRate];
         }
 
-        if ($quizAverage !== null) {
-            $signals['quiz'] = ['weight' => self::QUIZ_WEIGHT, 'value' => $quizAverage];
+        if ($academicAverage !== null) {
+            $signals['academic'] = ['weight' => self::ACADEMIC_WEIGHT, 'value' => $academicAverage];
         }
 
         $totalWeight = array_sum(array_column($signals, 'weight'));
@@ -196,7 +258,7 @@ final class PerformancePredictionService
         return round($score, 1);
     }
 
-    private function riskFlags(?float $attendanceRate, ?float $quizAverage, float $profileCompleteness): array
+    private function riskFlags(?float $attendanceRate, ?float $academicAverage, float $profileCompleteness): array
     {
         $flags = [];
 
@@ -204,8 +266,8 @@ final class PerformancePredictionService
             $flags[] = 'low_attendance';
         }
 
-        if ($quizAverage !== null && $quizAverage < self::LOW_QUIZ_THRESHOLD) {
-            $flags[] = 'low_quiz_performance';
+        if ($academicAverage !== null && $academicAverage < self::LOW_ACADEMIC_THRESHOLD) {
+            $flags[] = 'low_academic_performance';
         }
 
         if ($profileCompleteness < 100.0) {

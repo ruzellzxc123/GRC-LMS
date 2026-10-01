@@ -38,3 +38,30 @@ export function goBack(fallbackHref: string): void {
 
     router.visit(fallbackHref);
 }
+
+/**
+ * Removes a query param from the current URL in place, without an Inertia
+ * visit (no re-render, no new history entry — just corrects what's already
+ * there). Needed for any "?foo=1"-triggered UI (e.g. a modal that opens
+ * because a dashboard link landed on `?create=1`): once the user dismisses
+ * it, the param has to go too, or returning to this exact URL later — via
+ * the browser's Back/Forward buttons, or a refresh — reopens the modal
+ * every time, since a fresh mount re-reads the URL to decide initial state.
+ */
+export function dropQueryParam(name: string): void {
+    const params = new URLSearchParams(window.location.search);
+
+    if (!params.has(name)) {
+        return;
+    }
+
+    params.delete(name);
+
+    const query = params.toString();
+
+    window.history.replaceState(
+        window.history.state,
+        '',
+        window.location.pathname + (query ? `?${query}` : ''),
+    );
+}

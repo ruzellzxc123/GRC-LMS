@@ -1,5 +1,6 @@
 import { Head, router } from '@inertiajs/react';
 import {
+    AlertTriangle,
     CheckCircle2,
     ClipboardCheck,
     Eye,
@@ -13,7 +14,6 @@ import BackLink from '@/components/back-link';
 interface Courseware {
     id: number;
     subject: string;
-    course_code: string | null;
 }
 
 interface ContentItemInfo {
@@ -52,6 +52,7 @@ interface QuizAttemptRow {
     score: number | null;
     correct_count: number | null;
     total_questions: number | null;
+    suspicious_activity_count: number | null;
     has_late_exception: boolean;
 }
 
@@ -247,9 +248,6 @@ export default function ContentSubmissions({
                         <div className="flex items-center gap-2 text-sm text-red-100">
                             <ClipboardCheck className="size-4" />
                             {courseware.subject}
-                            {courseware.course_code
-                                ? ` (${courseware.course_code})`
-                                : ''}
                         </div>
                         <h1 className="mt-2 text-2xl font-bold">
                             Submissions — {item.title}
@@ -565,6 +563,9 @@ export default function ContentSubmissions({
                                                         <th className="px-5 py-3 text-right font-semibold">
                                                             Score
                                                         </th>
+                                                        <th className="px-5 py-3 font-semibold">
+                                                            Flags
+                                                        </th>
                                                         {showExceptionColumn && (
                                                             <th className="px-5 py-3 font-semibold">
                                                                 Late Exception
@@ -618,6 +619,26 @@ export default function ContentSubmissions({
                                                                 null
                                                                     ? `${row.correct_count}/${row.total_questions}`
                                                                     : '—'}
+                                                            </td>
+                                                            <td className="px-5 py-4">
+                                                                {row.suspicious_activity_count !==
+                                                                    null &&
+                                                                row.suspicious_activity_count >
+                                                                    0 ? (
+                                                                    <span
+                                                                        title="Number of times the student left the quiz tab or triggered a screenshot key while attempting"
+                                                                        className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700"
+                                                                    >
+                                                                        <AlertTriangle className="size-3.5" />
+                                                                        {
+                                                                            row.suspicious_activity_count
+                                                                        }
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-sm text-slate-300">
+                                                                        —
+                                                                    </span>
+                                                                )}
                                                             </td>
                                                             {showExceptionColumn && (
                                                                 <td className="px-5 py-4">

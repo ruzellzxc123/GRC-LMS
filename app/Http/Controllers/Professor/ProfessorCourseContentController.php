@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Professor;
 
+use App\Events\CourseContentUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\ContentItemComment;
 use App\Models\ContentItemSubmission;
@@ -9,7 +10,6 @@ use App\Models\CourseContentCategory;
 use App\Models\CourseContentItem;
 use App\Models\Courseware;
 use App\Models\Enrollment;
-use App\Models\GradeItem;
 use App\Models\GradeScore;
 use App\Models\LateException;
 use App\Models\Quiz;
@@ -28,13 +28,17 @@ use Inertia\Response;
 class ProfessorCourseContentController extends Controller
 {
     private const TIMING_MODES = ['timestamp', 'timer'];
-    private const WORK_TYPES = ['assignment', 'activity'];
+
+    private const WORK_TYPES = ['assignment', 'activity', 'learning_material'];
 
     /**
      * A module's work_type maps directly onto the grading system's category
      * of the same purpose ("Assignments"/"Activities" — both auto-provisioned
      * for every term by TermGradingService), so a graded submission lands in
      * the correct bucket instead of everything defaulting to one category.
+     * `learning_material` has no entry on purpose — it's ungraded reference
+     * content, never expected to produce a submission to sync in the first
+     * place (see syncScoreToGradingSystem()'s fallback for the unlikely case).
      */
     private const WORK_TYPE_GRADE_CATEGORY_NAMES = [
         'assignment' => 'Assignments',
@@ -54,7 +58,11 @@ class ProfessorCourseContentController extends Controller
         $term = $courseware->academicTerm;
 
         return Inertia::render('professor/courses/content', [
-            'courseware' => $courseware->only(['id', 'subject', 'course_code']),
+            'courseware' => [
+                ...$courseware->only(['id', 'subject', 'year_level', 'section']),
+                'meeting_link' => $courseware->meetingUrl(),
+                'uses_embedded_meeting' => $courseware->usesEmbeddedMeeting(),
+            ],
             'categories' => $categories->map(fn (CourseContentCategory $category) => [
                 'id' => $category->id,
                 'name' => $category->name,
@@ -70,8 +78,9 @@ class ProfessorCourseContentController extends Controller
                     'timing_mode' => $item->timing_mode,
                     'time_limit_minutes' => $item->time_limit_minutes,
                     'work_type' => $item->work_type,
+                    'delivery_mode' => $item->delivery_mode,
                     'week' => $term?->weekNumberFor($item->created_at),
-                    'hyflex_mode' => $term && $courseware->hyflex_group
+                    'hyflex_mode' => ($item->delivery_mode === 'hyflex' && $term && $courseware->hyflex_group)
                         ? $term->hyflexModeForWeek($term->weekNumberFor($item->created_at), $courseware->hyflex_group)
                         : null,
                     'submissions_count' => $item->submissions()->count(),
@@ -135,6 +144,8 @@ class ProfessorCourseContentController extends Controller
             'max_points' => $validated['max_points'] ?? 100,
         ]);
 
+        CourseContentUpdated::dispatchSafely($courseware->id);
+
         // Saving from the "Add Quiz"/"Import Quiz" button continues straight
         // into building the quiz instead of landing back on the content
         // list — the new module is already saved by this point.
@@ -162,7 +173,7 @@ class ProfessorCourseContentController extends Controller
         abort_unless($item->category->courseware_id === $courseware->id, 403);
 
         return Inertia::render('professor/courses/content-upload', [
-            'courseware' => $courseware->only(['id', 'subject', 'course_code']),
+            'courseware' => $courseware->only(['id', 'subject']),
             'category' => $item->category->only(['id', 'name']),
             'item' => [
                 'id' => $item->id,
@@ -175,6 +186,7 @@ class ProfessorCourseContentController extends Controller
                 'timing_mode' => $item->timing_mode,
                 'time_limit_minutes' => $item->time_limit_minutes,
                 'work_type' => $item->work_type,
+                'delivery_mode' => $item->delivery_mode,
                 'deadline' => $item->deadline?->format('Y-m-d\TH:i'),
                 'max_points' => $item->max_points,
                 'week' => $courseware->academicTerm?->weekNumberFor($item->created_at),
@@ -215,7 +227,10 @@ class ProfessorCourseContentController extends Controller
             'time_limit_minutes' => $validated['time_limit_minutes'] ?? null,
             'work_type' => $validated['work_type'],
             'deadline' => $validated['deadline'] ?? null,
-            'max_points' => $validated['max_points'] ?? 100,
+            // Not resubmitted when the form hid the field for a Learning
+            // Material module — keep whatever the item already had rather
+            // than silently resetting it to the generic default.
+            'max_points' => $validated['max_points'] ?? $item->max_points ?? 100,
         ];
 
         if ($request->hasFile('file')) {
@@ -228,6 +243,8 @@ class ProfessorCourseContentController extends Controller
         }
 
         $item->update($updateData);
+
+        CourseContentUpdated::dispatchSafely($courseware->id);
 
         return Redirect::route('professor.content.index', $courseware)
             ->with('success', 'Item was updated successfully.');
@@ -242,6 +259,8 @@ class ProfessorCourseContentController extends Controller
         $item->save();
 
         $status = $item->is_published ? 'published' : 'unpublished';
+
+        CourseContentUpdated::dispatchSafely($courseware->id);
 
         return back()->with('success', "\"{$item->title}\" was {$status}.");
     }
@@ -259,6 +278,8 @@ class ProfessorCourseContentController extends Controller
             'user_id' => auth()->id(),
             'body' => $validated['body'],
         ]);
+
+        CourseContentUpdated::dispatchSafely($courseware->id);
 
         return back()->with('success', 'Comment was posted.');
     }
@@ -288,7 +309,7 @@ class ProfessorCourseContentController extends Controller
             ->groupBy('quiz_id');
 
         return Inertia::render('professor/courses/content-submissions', [
-            'courseware' => $courseware->only(['id', 'subject', 'course_code']),
+            'courseware' => $courseware->only(['id', 'subject']),
             'item' => [
                 ...$item->only(['id', 'title']),
                 'deadline' => $item->deadline?->toIso8601String(),
@@ -336,6 +357,7 @@ class ProfessorCourseContentController extends Controller
                             'score' => $attempt?->score,
                             'correct_count' => $attempt?->correct_count,
                             'total_questions' => $attempt?->total_questions,
+                            'suspicious_activity_count' => $attempt?->suspicious_activity_count,
                             'has_late_exception' => $quizExceptions->has($student->id),
                         ];
                     })->values(),
@@ -362,6 +384,8 @@ class ProfessorCourseContentController extends Controller
 
         $this->syncScoreToGradingSystem($courseware, $submission);
 
+        CourseContentUpdated::dispatchSafely($courseware->id);
+
         return back()->with('success', 'Score was saved successfully.');
     }
 
@@ -373,6 +397,8 @@ class ProfessorCourseContentController extends Controller
         if (! $submission->acknowledged_at) {
             $submission->update(['acknowledged_at' => now()]);
         }
+
+        CourseContentUpdated::dispatchSafely($courseware->id);
 
         return back()->with('success', 'Submission acknowledged.');
     }
@@ -445,10 +471,7 @@ class ProfessorCourseContentController extends Controller
             return;
         }
 
-        $gradeItem = GradeItem::firstOrCreate(
-            ['grade_category_id' => $gradeCategory->id, 'title' => $submission->item->title],
-            ['order' => $gradeCategory->items()->count(), 'max_points' => $submission->item->max_points],
-        );
+        $gradeItem = $this->gradingService->resolveGradeItemForContentItem($gradeCategory, $submission->item);
 
         // The item's own total can change after the grade item already
         // exists (e.g. a professor edits the assignment's points later) —

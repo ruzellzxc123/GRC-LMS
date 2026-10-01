@@ -18,7 +18,6 @@ interface Professor {
     name: string;
     email: string;
     department: string | null;
-    program: string | null;
     is_active: boolean;
 }
 
@@ -175,8 +174,6 @@ export default function ProfessorsIndex({
                                             Department
                                         </th>
 
-                                        <th className="px-5 py-3">Program</th>
-
                                         <th className="px-5 py-3">Status</th>
 
                                         <th className="px-5 py-3 text-right">
@@ -215,11 +212,6 @@ export default function ProfessorsIndex({
                                             <td className="px-5 py-4 text-sm text-slate-600">
                                                 {professor.department ??
                                                     'Not assigned'}
-                                            </td>
-
-                                            <td className="px-5 py-4 text-sm text-slate-600">
-                                                {professor.program ??
-                                                    'Not specified'}
                                             </td>
 
                                             <td className="px-5 py-4">

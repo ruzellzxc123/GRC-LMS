@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
@@ -20,7 +21,6 @@ class Courseware extends Model
      */
     protected $fillable = [
         'subject',
-        'course_code',
         'subject_code',
         'professor',
         'professor_id',
@@ -31,26 +31,32 @@ class Courseware extends Model
         'department_id',
         'academic_term_id',
         'prelims_weight',
-        'midterm_period_weight',
         'midterm_weight',
         'finals_weight',
         'meeting_link',
         'meeting_started_at',
+        'schedule_mode',
         'class_day',
         'class_start_time',
         'class_end_time',
+        'class_day_2',
+        'class_start_time_2',
+        'class_end_time_2',
+        'archived_at',
     ];
 
     protected function casts(): array
     {
         return [
             'prelims_weight' => 'decimal:2',
-            'midterm_period_weight' => 'decimal:2',
             'midterm_weight' => 'decimal:2',
             'finals_weight' => 'decimal:2',
             'meeting_started_at' => 'datetime',
             'class_start_time' => 'datetime:H:i',
             'class_end_time' => 'datetime:H:i',
+            'class_start_time_2' => 'datetime:H:i',
+            'class_end_time_2' => 'datetime:H:i',
+            'archived_at' => 'datetime',
         ];
     }
 
@@ -89,10 +95,36 @@ class Courseware extends Model
         return $this->hasMany(CourseContentCategory::class);
     }
 
+    public function meetingSessions()
+    {
+        return $this->hasMany(MeetingSession::class);
+    }
+
+    public function classReports()
+    {
+        return $this->hasMany(ClassReport::class);
+    }
+
+    /**
+     * The currently-live meeting session (if any) — looked up fresh rather
+     * than cached on the courseware row, since "live" just means no
+     * ended_at yet.
+     */
+    public function activeMeetingSession(): ?MeetingSession
+    {
+        return $this->meetingSessions()->whereNull('ended_at')->latest('started_at')->first();
+    }
+
     /**
      * The live meeting link for this subject. Professors can override with
      * their own link (Meet, Zoom, etc.); otherwise every subject gets a
-     * ready-to-use Jitsi Meet room with no setup required.
+     * ready-to-use Jitsi Meet room on our own self-hosted instance
+     * (JITSI_DOMAIN), with no per-subject setup required.
+     *
+     * The room name is keyed on the courseware's id alone, never its
+     * subject text — renaming a subject (including via Reuse, which
+     * explicitly allows it) must never change the link students and the
+     * professor already have bookmarked/shared.
      */
     public function meetingUrl(): string
     {
@@ -100,9 +132,10 @@ class Courseware extends Model
             return $this->meeting_link;
         }
 
-        $room = 'GRCLMS-'.$this->id.'-'.Str::slug($this->subject);
+        $room = 'GRCLMS-'.$this->id;
+        $domain = config('services.jitsi.domain');
 
-        return "https://meet.jit.si/{$room}";
+        return "https://{$domain}/{$room}";
     }
 
     /**
@@ -112,12 +145,39 @@ class Courseware extends Model
      */
     public function usesEmbeddedMeeting(): bool
     {
-        return Str::contains($this->meetingUrl(), 'meet.jit.si');
+        return Str::contains($this->meetingUrl(), config('services.jitsi.domain'));
     }
 
     public function isMeetingLive(): bool
     {
         return $this->meeting_started_at !== null;
+    }
+
+    public function isArchived(): bool
+    {
+        return $this->archived_at !== null;
+    }
+
+    /**
+     * Whether today falls inside this subject's academic term — the
+     * authoritative check for whether its meetings can be joined/started at
+     * all, independent of archived_at (which is only set lazily by the
+     * archive-ended-terms middleware and may not have run yet). A subject
+     * with no term assigned has no boundary to enforce.
+     */
+    public function isWithinTermSchedule(): bool
+    {
+        return $this->academicTerm === null || $this->academicTerm->isActive();
+    }
+
+    public function scopeActive(Builder $query): void
+    {
+        $query->whereNull('archived_at');
+    }
+
+    public function scopeArchived(Builder $query): void
+    {
+        $query->whereNotNull('archived_at');
     }
 
     /**
@@ -145,11 +205,13 @@ class Courseware extends Model
     }
 
     /**
-     * Whether this subject's HyFlex group is face-to-face or online for the
-     * current week — the same week-based rotation shown on uploads, just
-     * evaluated for right now instead of an upload's date. Null when the
-     * subject isn't assigned a HyFlex group, has no academic term, the term
-     * isn't currently running, or the term hasn't configured a rotation.
+     * Whether this subject's HyFlex group is face-to-face or synchronous for
+     * the current week — the same week-based rotation shown on uploads, just
+     * evaluated for right now instead of an upload's date. Null only when
+     * the subject isn't assigned a HyFlex group, has no academic term, or
+     * that term isn't currently running — the rotation itself is a fixed
+     * rule (see AcademicTerm::hyflexModeForWeek()), not something that can
+     * be left unconfigured.
      */
     public function todaysHyflexMode(): ?string
     {

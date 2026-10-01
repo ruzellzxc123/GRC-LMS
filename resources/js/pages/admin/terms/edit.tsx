@@ -11,6 +11,7 @@ import { lastDayOfWeek18 } from '@/lib/term-dates';
 interface Term {
     id: number;
     name: string;
+    semester: string | null;
     start_date: string;
     end_date: string;
     prelims_start: string | null;
@@ -19,14 +20,14 @@ interface Term {
     midterm_end: string | null;
     finals_start: string | null;
     finals_end: string | null;
-    hyflex_first_f2f_group: string | null;
 }
 
 interface EditTermProps {
     term: Term;
+    semesters: string[];
 }
 
-export default function EditTerm({ term }: EditTermProps) {
+export default function EditTerm({ term, semesters }: EditTermProps) {
     const [startDate, setStartDate] = useState(term.start_date);
     const [endDate, setEndDate] = useState(term.end_date);
 
@@ -80,6 +81,35 @@ export default function EditTerm({ term }: EditTermProps) {
                                     </div>
 
                                     <div className="grid gap-2">
+                                        <Label htmlFor="semester">
+                                            Semester
+                                        </Label>
+                                        <select
+                                            id="semester"
+                                            name="semester"
+                                            defaultValue={term.semester ?? ''}
+                                            className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                                        >
+                                            <option value="">Not set</option>
+                                            {semesters.map((semester) => (
+                                                <option
+                                                    key={semester}
+                                                    value={semester}
+                                                >
+                                                    {semester}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <p className="text-xs text-slate-500">
+                                            Used to match this term against a
+                                            department's curriculum (First vs
+                                            Second Semester subjects) when
+                                            creating a subject.
+                                        </p>
+                                        <InputError message={errors.semester} />
+                                    </div>
+
+                                    <div className="grid gap-2">
                                         <Label htmlFor="start_date">
                                             Start Date
                                         </Label>
@@ -125,48 +155,6 @@ export default function EditTerm({ term }: EditTermProps) {
                                             — adjust if needed.
                                         </p>
                                         <InputError message={errors.end_date} />
-                                    </div>
-
-                                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                                        <p className="text-sm font-semibold text-slate-700">
-                                            HyFlex Schedule (optional)
-                                        </p>
-                                        <p className="mt-1 text-xs text-slate-500">
-                                            Which HyFlex group starts on a
-                                            face-to-face week — the other group
-                                            starts online, and they alternate
-                                            weekly for the rest of the term.
-                                        </p>
-
-                                        <div className="mt-4 grid gap-2">
-                                            <Label htmlFor="hyflex_first_f2f_group">
-                                                Group with First F2F Week
-                                            </Label>
-                                            <select
-                                                id="hyflex_first_f2f_group"
-                                                name="hyflex_first_f2f_group"
-                                                defaultValue={
-                                                    term.hyflex_first_f2f_group ??
-                                                    ''
-                                                }
-                                                className="h-10 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
-                                            >
-                                                <option value="">
-                                                    Not set
-                                                </option>
-                                                <option value="A">
-                                                    HyFlex A
-                                                </option>
-                                                <option value="B">
-                                                    HyFlex B
-                                                </option>
-                                            </select>
-                                            <InputError
-                                                message={
-                                                    errors.hyflex_first_f2f_group
-                                                }
-                                            />
-                                        </div>
                                     </div>
 
                                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">

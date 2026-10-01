@@ -13,11 +13,11 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import BackLink from '@/components/back-link';
+import { useCourseUpdates } from '@/hooks/use-live-updates';
 
 interface Courseware {
     id: number;
     subject: string;
-    course_code: string | null;
     meeting_link: string | null;
     effective_meeting_link: string;
     uses_embedded_meeting: boolean;
@@ -39,7 +39,7 @@ interface RosterEntry {
         student_id: string | null;
     };
     attendance_rate: number | null;
-    quiz_average: number | null;
+    academic_average: number | null;
     composite_score: number;
     label: RiskLabel;
     risk_level: 'low' | 'medium' | 'high';
@@ -48,7 +48,7 @@ interface RosterEntry {
 interface RosterSummary {
     student_count: number;
     avg_attendance: number | null;
-    avg_quiz_score: number | null;
+    avg_academic_score: number | null;
     at_risk_count: number;
 }
 
@@ -189,17 +189,17 @@ function RosterRow({
 
             <div className="flex flex-col gap-1 max-sm:col-span-2">
                 <span className="text-[0.65rem] font-semibold tracking-wide text-slate-400 uppercase">
-                    Quiz Avg
+                    Academic Avg
                 </span>
                 <span className="text-sm font-bold text-slate-700 tabular-nums">
-                    {entry.quiz_average !== null
-                        ? `${entry.quiz_average}%`
+                    {entry.academic_average !== null
+                        ? `${entry.academic_average}%`
                         : '—'}
                 </span>
                 <div className="h-1 overflow-hidden rounded-full bg-slate-100">
                     <div
-                        className={`h-full rounded-full ${barColor(entry.quiz_average)}`}
-                        style={{ width: `${entry.quiz_average ?? 0}%` }}
+                        className={`h-full rounded-full ${barColor(entry.academic_average)}`}
+                        style={{ width: `${entry.academic_average ?? 0}%` }}
                     />
                 </div>
             </div>
@@ -497,6 +497,8 @@ export default function Roster({
     summary,
     grading,
 }: RosterProps) {
+    useCourseUpdates(courseware.id);
+
     const [gradingOpen, setGradingOpen] = useState(false);
     const worst = roster[0];
 
@@ -524,9 +526,6 @@ export default function Roster({
                                 </h1>
                                 <p className="mt-2 text-sm leading-6 text-red-100 md:text-base">
                                     {courseware.subject}
-                                    {courseware.course_code
-                                        ? ` (${courseware.course_code})`
-                                        : ''}
                                 </p>
                             </div>
                             <div className="flex flex-wrap gap-3">
@@ -598,10 +597,10 @@ export default function Roster({
                         />
                         <MetricTile
                             icon={GraduationCap}
-                            label="Avg. Quiz Score"
+                            label="Avg. Academic Score"
                             value={
-                                summary.avg_quiz_score !== null
-                                    ? `${summary.avg_quiz_score}%`
+                                summary.avg_academic_score !== null
+                                    ? `${summary.avg_academic_score}%`
                                     : '—'
                             }
                             caption="this term"

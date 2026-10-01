@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AcademicTerm;
 use App\Models\Courseware;
+use App\Models\CurriculumSubject;
 use App\Models\Department;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
@@ -33,6 +34,8 @@ class AdminCoursewareController extends Controller
         'Saturday',
     ];
 
+    private const SCHEDULE_MODES = ['single', 'dual'];
+
     public function index(Request $request): Response
     {
         $search = trim((string) $request->query('search', ''));
@@ -48,7 +51,6 @@ class AdminCoursewareController extends Controller
                     $query->where(function ($courseQuery) use ($search): void {
                         $courseQuery
                             ->where('subject', 'like', "%{$search}%")
-                            ->orWhere('course_code', 'like', "%{$search}%")
                             ->orWhere('subject_code', 'like', "%{$search}%")
                             ->orWhere('professor', 'like', "%{$search}%")
                             ->orWhere('module_title', 'like', "%{$search}%");
@@ -86,8 +88,12 @@ class AdminCoursewareController extends Controller
                 ->get(['id', 'name']),
             'academic_terms' => AcademicTerm::query()
                 ->orderByDesc('start_date')
-                ->get(['id', 'name', 'start_date', 'end_date']),
+                ->get(['id', 'name', 'semester', 'start_date', 'end_date']),
             'professors' => $this->professorsPayload(),
+            'curriculum_subjects' => CurriculumSubject::query()
+                ->orderBy('order')
+                ->orderBy('code')
+                ->get(['id', 'department_id', 'year_level', 'semester', 'category', 'code', 'title']),
         ]);
     }
 
@@ -95,17 +101,24 @@ class AdminCoursewareController extends Controller
     {
         $validated = $request->validate([
             'subject' => ['required', 'string', 'max:255'],
-            'course_code' => ['nullable', 'string', 'max:50', Rule::unique('courseware', 'course_code')],
             'subject_code' => ['nullable', 'string', 'max:50', Rule::unique('courseware', 'subject_code')],
             'professor_id' => ['required', 'exists:users,id', $this->professorDepartmentRule($request)],
             'year_level' => ['nullable', Rule::in(self::YEAR_LEVELS)],
             'section' => $this->sectionRules($request),
             'hyflex_group' => ['nullable', Rule::in(['A', 'B'])],
             'department_id' => ['nullable', 'exists:departments,id'],
-            'academic_term_id' => ['nullable', 'exists:academic_terms,id'],
+            // A subject's weekly class schedule only has real-world meaning
+            // bounded by an actual semester's date range — required so it
+            // always auto-archives at term end and so meetings/reports stay
+            // scoped to real dates instead of running indefinitely.
+            'academic_term_id' => ['required', 'exists:academic_terms,id'],
+            'schedule_mode' => ['required', Rule::in(self::SCHEDULE_MODES)],
             'class_day' => ['nullable', Rule::in(self::CLASS_DAYS)],
             'class_start_time' => ['nullable', 'date_format:H:i', 'required_with:class_end_time'],
             'class_end_time' => ['nullable', 'date_format:H:i', 'required_with:class_start_time', 'after:class_start_time'],
+            'class_day_2' => ['nullable', Rule::in(self::CLASS_DAYS), Rule::requiredIf(fn () => $request->input('schedule_mode') === 'dual')],
+            'class_start_time_2' => ['nullable', 'date_format:H:i', 'required_with:class_end_time_2'],
+            'class_end_time_2' => ['nullable', 'date_format:H:i', 'required_with:class_start_time_2', 'after:class_start_time_2'],
         ]);
 
         // The display name always mirrors the assigned professor's account
@@ -117,6 +130,12 @@ class AdminCoursewareController extends Controller
         // title so the required column has a sensible placeholder.
         $validated['module_title'] = $validated['subject'];
 
+        if ($validated['schedule_mode'] !== 'dual') {
+            $validated['class_day_2'] = null;
+            $validated['class_start_time_2'] = null;
+            $validated['class_end_time_2'] = null;
+        }
+
         Courseware::create($validated);
 
         return Redirect::route('admin.courses.index')
@@ -127,13 +146,6 @@ class AdminCoursewareController extends Controller
     {
         $validated = $request->validate([
             'subject' => ['required', 'string', 'max:255'],
-            'course_code' => [
-                'nullable',
-                'string',
-                'max:50',
-                Rule::unique('courseware', 'course_code')
-                    ->ignore($courseware->id),
-            ],
             'subject_code' => [
                 'nullable',
                 'string',
@@ -146,15 +158,29 @@ class AdminCoursewareController extends Controller
             'section' => $this->sectionRules($request),
             'hyflex_group' => ['nullable', Rule::in(['A', 'B'])],
             'department_id' => ['nullable', 'exists:departments,id'],
-            'academic_term_id' => ['nullable', 'exists:academic_terms,id'],
+            // A subject's weekly class schedule only has real-world meaning
+            // bounded by an actual semester's date range — required so it
+            // always auto-archives at term end and so meetings/reports stay
+            // scoped to real dates instead of running indefinitely.
+            'academic_term_id' => ['required', 'exists:academic_terms,id'],
+            'schedule_mode' => ['required', Rule::in(self::SCHEDULE_MODES)],
             'class_day' => ['nullable', Rule::in(self::CLASS_DAYS)],
             'class_start_time' => ['nullable', 'date_format:H:i', 'required_with:class_end_time'],
             'class_end_time' => ['nullable', 'date_format:H:i', 'required_with:class_start_time', 'after:class_start_time'],
+            'class_day_2' => ['nullable', Rule::in(self::CLASS_DAYS), Rule::requiredIf(fn () => $request->input('schedule_mode') === 'dual')],
+            'class_start_time_2' => ['nullable', 'date_format:H:i', 'required_with:class_end_time_2'],
+            'class_end_time_2' => ['nullable', 'date_format:H:i', 'required_with:class_start_time_2', 'after:class_start_time_2'],
         ]);
 
         // The display name always mirrors the assigned professor's account
         // name — there's no separate manual entry for it anymore.
         $validated['professor'] = User::find($validated['professor_id'])->name;
+
+        if ($validated['schedule_mode'] !== 'dual') {
+            $validated['class_day_2'] = null;
+            $validated['class_start_time_2'] = null;
+            $validated['class_end_time_2'] = null;
+        }
 
         // module_title isn't in $validated at all here — the professor owns
         // that field from their own course editor, so admin edits leave

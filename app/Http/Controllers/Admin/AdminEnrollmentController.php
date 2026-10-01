@@ -47,7 +47,7 @@ class AdminEnrollmentController extends Controller
             ->get(['id', 'name', 'email', 'student_id']);
 
         return Inertia::render('admin/courses/enrollments', [
-            'courseware' => $courseware->only(['id', 'subject', 'course_code']),
+            'courseware' => $courseware->only(['id', 'subject']),
             'enrollments' => $enrollments,
             'candidates' => $candidates,
             'filters' => [

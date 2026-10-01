@@ -15,12 +15,6 @@ use Inertia\Response;
 
 class AdminProfessorController extends Controller
 {
-    private const PROGRAMS = [
-        'Bachelor of Science In Computer Science',
-        'Bachelor of Science In Education',
-        'Bachelor of Science In Accounting',
-    ];
-
     public function index(Request $request): Response
     {
         $search = trim(
@@ -54,11 +48,6 @@ class AdminProfessorController extends Controller
                                     'department',
                                     'like',
                                     "%{$search}%",
-                                )
-                                ->orWhere(
-                                    'program',
-                                    'like',
-                                    "%{$search}%",
                                 );
                         },
                     );
@@ -73,7 +62,6 @@ class AdminProfessorController extends Controller
                     'email',
                     'professor_id',
                     'department',
-                    'program',
                     'is_active',
                 ],
             )
@@ -113,7 +101,7 @@ class AdminProfessorController extends Controller
             'professor_id' => [
                 'required',
                 'string',
-                'regex:/^\d{4}-\d{2}-\d{5}$/',
+                'regex:/^\d{4}-\d{3}$/',
                 Rule::unique('users', 'professor_id'),
             ],
 
@@ -133,11 +121,6 @@ class AdminProfessorController extends Controller
             'department' => [
                 'required',
                 Rule::exists('departments', 'name'),
-            ],
-
-            'program' => [
-                'required',
-                Rule::in(self::PROGRAMS),
             ],
 
             'password' => [
@@ -160,9 +143,6 @@ class AdminProfessorController extends Controller
 
         $professor->department =
             $validated['department'];
-
-        $professor->program =
-            $validated['program'];
 
         $professor->role = 'professor';
 
@@ -198,7 +178,6 @@ class AdminProfessorController extends Controller
                     'name' => $professor->name,
                     'email' => $professor->email,
                     'department' => $professor->department,
-                    'program' => $professor->program,
                     'is_active' => (bool) $professor->is_active,
                 ],
 
@@ -222,7 +201,7 @@ class AdminProfessorController extends Controller
             'professor_id' => [
                 'required',
                 'string',
-                'regex:/^\d{4}-\d{2}-\d{5}$/',
+                'regex:/^\d{4}-\d{3}$/',
 
                 Rule::unique('users', 'professor_id')
                     ->ignore($professor->id),
@@ -247,11 +226,6 @@ class AdminProfessorController extends Controller
                 'required',
                 Rule::exists('departments', 'name'),
             ],
-
-            'program' => [
-                'required',
-                Rule::in(self::PROGRAMS),
-            ],
         ]);
 
         $professor->professor_id =
@@ -265,9 +239,6 @@ class AdminProfessorController extends Controller
 
         $professor->department =
             $validated['department'];
-
-        $professor->program =
-            $validated['program'];
 
         $professor->save();
 
